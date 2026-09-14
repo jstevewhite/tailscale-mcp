@@ -232,7 +232,7 @@ The `confirm` argument on mutating tools is a speed bump, not a safeguard: the r
 
 A hundred-plus tool schemas is a lot of context for a model. Profiles let the operator publish a named subset of tools, and let each client pick one by the URL it connects to. Grants still apply: a client sees the intersection of its profile and its grant.
 
-Define profiles in a YAML file passed with `--config` or `TS_MCP_CONFIG`:
+Define profiles in a YAML file passed with `--config` or `TS_MCP_CONFIG`. The repo ships `profiles.example.yaml` as a starting point; copy it to `profiles.yaml`, which is ignored by git:
 
 ```yaml
 default: readonly          # served at /mcp; omit to serve everything the grant allows

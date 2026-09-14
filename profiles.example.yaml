@@ -1,0 +1,16 @@
+# Tool profiles for ts-mcp. Copy to profiles.yaml and pass --config profiles.yaml.
+# Clients pick a profile by URL: /mcp serves `default`, /mcp/<name> serves a named one.
+# A client sees the intersection of its profile and its Tailscale grant.
+# Run `ts-mcp --list-groups` to see every tool with its group and read-only flag.
+
+default: readonly
+
+profiles:
+  readonly: ["read:*"]
+  devices:  ["group:devices"]
+  dns:      ["group:dns"]
+  policy:   ["group:policy"]
+  keys:     ["group:keys"]
+  users:    ["group:users", "group:invites"]
+  network:  ["group:services", "group:webhooks", "group:logs"]
+  all:      ["*"]
