@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -168,5 +170,48 @@ func TestValidateCredentialFormatsValidationError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), tailscaleOAuthTokenEnv) || !strings.Contains(err.Error(), "missing scope") {
 		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
+func TestFederatedCredentialReadsIDTokenFromFileOnEachCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "id-token")
+	if err := os.WriteFile(path, []byte("token-one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cred, err := ParseTailscaleCredential(`{"type":"federated","clientId":"cid","idTokenFile":"` + path + `"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Kind != CredentialFederated {
+		t.Fatalf("kind = %q, want federated", cred.Kind)
+	}
+	if got, _ := cred.idToken(); got != "token-one" {
+		t.Fatalf("first read = %q, want token-one", got)
+	}
+	if err := os.WriteFile(path, []byte("token-two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := cred.idToken(); got != "token-two" {
+		t.Fatalf("second read = %q, want token-two (token was not re-read)", got)
+	}
+}
+
+func TestFederatedCredentialRequiresIDTokenOrFile(t *testing.T) {
+	_, err := ParseTailscaleCredential(`{"type":"federated","clientId":"cid"}`)
+	if err == nil || !strings.Contains(err.Error(), "idToken") {
+		t.Fatalf("expected idToken error, got %v", err)
+	}
+}
+
+func TestConfigureTSNetLoadsIDTokenFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "id-token")
+	if err := os.WriteFile(path, []byte("startup-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cred := TailscaleCredential{Kind: CredentialFederated, ClientID: "cid", IDTokenFile: path}
+	server := &tsnet.Server{}
+	cred.ConfigureTSNet(server)
+	if server.IDToken != "startup-token" {
+		t.Fatalf("tsnet IDToken = %q, want startup-token", server.IDToken)
 	}
 }

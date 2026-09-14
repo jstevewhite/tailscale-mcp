@@ -80,6 +80,7 @@ type TailscaleCredential struct {
 	ClientID     string
 	ClientSecret string
 	IDToken      string
+	IDTokenFile  string
 	Audience     string
 	Scopes       []string
 }
@@ -90,6 +91,7 @@ type credentialJSON struct {
 	ClientID     string   `json:"clientId"`
 	ClientSecret string   `json:"clientSecret"`
 	IDToken      string   `json:"idToken"`
+	IDTokenFile  string   `json:"idTokenFile"`
 	Audience     string   `json:"audience"`
 	Scopes       []string `json:"scopes"`
 }
@@ -116,6 +118,7 @@ func ParseTailscaleCredentialWithClientID(raw, clientID string) (TailscaleCreden
 			ClientID:     strings.TrimSpace(cfg.ClientID),
 			ClientSecret: strings.TrimSpace(cfg.ClientSecret),
 			IDToken:      strings.TrimSpace(cfg.IDToken),
+			IDTokenFile:  strings.TrimSpace(cfg.IDTokenFile),
 			Audience:     strings.TrimSpace(cfg.Audience),
 			Scopes:       cfg.Scopes,
 		}
@@ -141,7 +144,7 @@ func classifyCredential(cred TailscaleCredential) CredentialKind {
 	switch {
 	case cred.ClientID != "" && cred.ClientSecret != "":
 		return CredentialOAuth
-	case cred.ClientID != "" && (cred.IDToken != "" || cred.Audience != ""):
+	case cred.ClientID != "" && (cred.IDToken != "" || cred.IDTokenFile != "" || cred.Audience != ""):
 		return CredentialFederated
 	case cred.Token != "":
 		return CredentialBearer
@@ -160,8 +163,8 @@ func (c TailscaleCredential) validate() error {
 		if c.ClientID == "" {
 			return errors.New("federated credential requires clientId")
 		}
-		if c.IDToken == "" {
-			return errors.New("federated credential requires idToken for Admin API access")
+		if c.IDToken == "" && c.IDTokenFile == "" {
+			return errors.New("federated credential requires idToken or idTokenFile for Admin API access")
 		}
 	case CredentialBearer:
 		if c.Token == "" {
@@ -180,7 +183,7 @@ func (c TailscaleCredential) AdminAuth() tsapi.Auth {
 	case CredentialOAuth:
 		return &tsapi.OAuth{ClientID: c.ClientID, ClientSecret: c.ClientSecret, Scopes: c.Scopes}
 	case CredentialFederated:
-		return &tsapi.IdentityFederation{ClientID: c.ClientID, IDTokenFunc: func() (string, error) { return c.IDToken, nil }}
+		return &tsapi.IdentityFederation{ClientID: c.ClientID, IDTokenFunc: c.idToken}
 	case CredentialBearer:
 		return staticBearerAuth{Token: c.Token}
 	default:
@@ -205,7 +208,11 @@ func (c TailscaleCredential) ConfigureTSNet(s *tsnet.Server) {
 		s.ClientSecret = c.ClientSecret
 	case CredentialFederated:
 		s.ClientID = c.ClientID
-		s.IDToken = c.IDToken
+		if token, err := c.idToken(); err == nil {
+			s.IDToken = token
+		} else {
+			logger.Error("Failed to read federated ID token for tsnet startup", zap.Error(err))
+		}
 		s.Audience = c.Audience
 	case CredentialBearer:
 		s.AuthKey = c.Token
@@ -221,6 +228,24 @@ func (c TailscaleCredential) RequiresTSNetAdvertiseTags() bool {
 	default:
 		return false
 	}
+}
+
+// idToken returns the federated ID token. When idTokenFile is set the file
+// is read on every call so a refreshed token (OIDC tokens usually expire
+// within an hour) is picked up without restarting the server.
+func (c TailscaleCredential) idToken() (string, error) {
+	if c.IDTokenFile == "" {
+		return c.IDToken, nil
+	}
+	data, err := os.ReadFile(c.IDTokenFile)
+	if err != nil {
+		return "", fmt.Errorf("read idTokenFile: %w", err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("idTokenFile %s is empty", c.IDTokenFile)
+	}
+	return token, nil
 }
 
 func parseAdvertiseTags(raw string) ([]string, error) {
