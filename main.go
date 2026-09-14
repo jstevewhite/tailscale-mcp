@@ -47,6 +47,7 @@ type CLI struct {
 	State         string `env:"TSNET_STATE" help:"tsnet state location: empty or file:// uses ./tsnet-<hostname>/tailscaled.state; file://<dir> uses <dir>/tailscaled.state; kube://<secret> uses a Kubernetes Secret; aws://<region>/<account>/parameter/<name> or aws://arn:aws:ssm:... uses AWS SSM"`
 	ForceLogin    bool   `env:"TSNET_FORCE_LOGIN" help:"Force tsnet to use the supplied startup credential even when local state exists"`
 	LocalCLI      bool   `env:"TAILSCALE_LOCAL_CLI" help:"Enable optional read-only tools that shell out to the local tailscale CLI"`
+	LocalGrants   string `name:"local-grants" env:"TS_MCP_LOCAL_GRANTS" help:"JSON grant for stdio and loopback callers, e.g. {\"tools\":[\"*\"],\"resources\":[\"*\"]}; unset denies all local access"`
 	Debug         bool   `short:"d"`
 	Version       bool   `short:"v"`
 	Stdio         bool   `help:"Use deprecated stdio mode instead of Streamable HTTP" default:"false"`
@@ -56,7 +57,6 @@ const (
 	mcpServerName               = "ts-mcp"
 	streamableHTTPTransportName = "Streamable HTTP"
 	mcpEndpointPath             = "/mcp"
-	defaultLocalStreamableAddr  = "127.0.0.1:8080"
 	tailscaleOAuthTokenEnv      = "TAILSCALE_OAUTH_TOKEN"
 )
 
@@ -617,6 +617,18 @@ func main() {
 	if err != nil {
 		logger.Fatal("Invalid Tailscale advertise tags", zap.Error(err))
 	}
+	localGrants, err := parseLocalGrants(cli.LocalGrants)
+	if err != nil {
+		logger.Fatal("Invalid local grants", zap.Error(err), zap.String("env", "TS_MCP_LOCAL_GRANTS"))
+	}
+	if localGrants == nil {
+		logger.Info("Local access disabled; stdio and loopback callers will be denied until --local-grants is set")
+	} else {
+		logger.Warn("Local access enabled; stdio and loopback callers are trusted with the configured grant",
+			zap.Strings("tools", localGrants.Tools),
+			zap.Strings("resources", localGrants.Resources),
+		)
+	}
 	stateConfig, err := resolveTSNetState(cli.State, cli.Hostname)
 	if err != nil {
 		logger.Fatal("Invalid tsnet state configuration", zap.Error(err), zap.String("env", "TSNET_STATE"))
@@ -661,7 +673,7 @@ func main() {
 			zap.String("recommended_endpoint", mcpEndpointPath),
 		)
 		logger.Info("Starting deprecated MCP stdio transport")
-		if err := server.ServeStdio(mcpServer); err != nil {
+		if err := server.ServeStdio(mcpServer, server.WithStdioContextFunc(stdioContextFunc(localGrants))); err != nil {
 			logger.Fatal("Stdio server error", zap.Error(err))
 		}
 		os.Exit(0)
@@ -695,23 +707,30 @@ func main() {
 		server.WithEndpointPath(mcpEndpointPath),
 	)
 
-	mux := http.NewServeMux()
-	mux.Handle(mcpEndpointPath, streamableHTTPHandler(streamable, tsServer))
+	tailnetMux := http.NewServeMux()
+	tailnetMux.Handle(mcpEndpointPath, streamableHTTPHandler(streamable, tsServer))
 
-	handlerWithMiddleware := mux
+	localMux := http.NewServeMux()
+	localMux.Handle(mcpEndpointPath, loggingMiddleware(allowOriginMiddleware(localGrantMiddleware(streamable, localGrants))))
 
+	localAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(cli.Port))
+	localLn, err := net.Listen("tcp", localAddr)
+	if err != nil {
+		logger.Fatal("Local listen error", zap.String("address", localAddr), zap.Error(err))
+	}
 	go func() {
 		logger.Info("Serving MCP locally",
 			zap.String("transport", streamableHTTPTransportName),
-			zap.String("address", defaultLocalStreamableAddr),
+			zap.String("address", localAddr),
 			zap.String("endpoint", mcpEndpointPath),
+			zap.Bool("local_grants", localGrants != nil),
 		)
-		if err := http.ListenAndServe(defaultLocalStreamableAddr, handlerWithMiddleware); err != nil {
+		if err := http.Serve(localLn, localMux); err != nil {
 			logger.Fatal("Local server error", zap.Error(err))
 		}
 	}()
 
-	if err := http.Serve(tsLn, handlerWithMiddleware); err != nil {
+	if err := http.Serve(tsLn, tailnetMux); err != nil {
 		logger.Fatal("Tailscale server error", zap.Error(err))
 	}
 }
