@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 	"tailscale.com/tailcfg"
@@ -77,32 +78,22 @@ func appendUnique(dst []string, src []string) []string {
 	return dst
 }
 
-// readOnlyWildcard is a tool grant that matches every tool whose MCP
-// annotations mark it read-only, and nothing that mutates.
-const readOnlyWildcard = "read:*"
-
-// AllowsTool reports whether the grant permits calling the named tool.
-// readOnly is the tool's own annotation and is what read:* keys on.
-func (c *MCPCapability) AllowsTool(name string, readOnly bool) bool {
+// AllowsTool reports whether the grant permits the tool described by m.
+func (c *MCPCapability) AllowsTool(m toolmeta.Meta) bool {
 	if c == nil {
 		return false
 	}
-	for _, allowed := range c.Tools {
-		switch allowed {
-		case "*", name:
-			return true
-		case readOnlyWildcard:
-			if readOnly {
-				return true
-			}
-		}
-	}
-	return false
+	return toolmeta.Selectors(c.Tools).Allows(m)
 }
 
-// toolIsReadOnly resolves a registered tool's read-only annotation. It is
-// installed by newMCPServer; until then no tool counts as read-only.
-var toolIsReadOnly = func(string) bool { return false }
+// toolMeta looks a registered tool up in the catalog. An unregistered name
+// yields zero metadata, which no selector but "*" or the exact name matches.
+func toolMeta(name string) toolmeta.Meta {
+	if m, ok := toolCatalog.Get(name); ok {
+		return m
+	}
+	return toolmeta.Meta{Name: name}
+}
 
 func isReadOnlyTool(tool mcp.Tool) bool {
 	return tool.Annotations.ReadOnlyHint != nil && *tool.Annotations.ReadOnlyHint
@@ -117,7 +108,9 @@ func grantToolFilter(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
 	}
 	allowed := make([]mcp.Tool, 0, len(tools))
 	for _, tool := range tools {
-		if caps.AllowsTool(tool.Name, isReadOnlyTool(tool)) {
+		m := toolMeta(tool.Name)
+		m.ReadOnly = isReadOnlyTool(tool) // annotations are authoritative
+		if caps.AllowsTool(m) {
 			allowed = append(allowed, tool)
 		}
 	}
@@ -157,7 +150,7 @@ func resourceGrantMatches(grant, uri string) bool {
 }
 
 func checkToolAccess(ctx context.Context, toolName string) error {
-	allows := func(c *MCPCapability, name string) bool { return c.AllowsTool(name, toolIsReadOnly(name)) }
+	allows := func(c *MCPCapability, name string) bool { return c.AllowsTool(toolMeta(name)) }
 	return checkAccess(ctx, toolName, "tool", allows, func(c *MCPCapability) []string { return c.Tools })
 }
 

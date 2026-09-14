@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
 	"go.uber.org/zap"
 	"tailscale.com/tailcfg"
 )
@@ -29,7 +30,7 @@ func TestParseMCPCapabilitiesUnionsAllGrantEntries(t *testing.T) {
 		t.Fatal("expected capabilities, got nil")
 	}
 	for _, tool := range []string{"list_all_devices", "get_device_info"} {
-		if !caps.AllowsTool(tool, false) {
+		if !caps.AllowsTool(toolmeta.Meta{Name: tool}) {
 			t.Errorf("tool %q should be allowed by the union of grants", tool)
 		}
 	}
@@ -38,7 +39,7 @@ func TestParseMCPCapabilitiesUnionsAllGrantEntries(t *testing.T) {
 			t.Errorf("resource %q should be allowed by the union of grants", res)
 		}
 	}
-	if caps.AllowsTool("tailscale_delete_device", false) {
+	if caps.AllowsTool(toolmeta.Meta{Name: "tailscale_delete_device"}) {
 		t.Error("ungranted tool was allowed")
 	}
 }

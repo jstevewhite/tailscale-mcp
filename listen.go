@@ -57,9 +57,5 @@ func newMCPServer() *server.MCPServer {
 		server.WithResourceRecovery(),
 		server.WithToolFilter(grantToolFilter),
 	)
-	toolIsReadOnly = func(name string) bool {
-		tool := srv.GetTool(name)
-		return tool != nil && isReadOnlyTool(tool.Tool)
-	}
 	return srv
 }
