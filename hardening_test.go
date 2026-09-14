@@ -82,11 +82,12 @@ func TestMCPServerRecoversFromPanickingTool(t *testing.T) {
 		panic("kaboom")
 	})
 
-	init := mcpServer.HandleMessage(context.Background(), json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`))
+	ctx := fullAccessContext()
+	init := mcpServer.HandleMessage(ctx, json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`))
 	if _, ok := init.(mcp.JSONRPCError); ok {
 		t.Fatalf("initialize failed: %#v", init)
 	}
-	resp := mcpServer.HandleMessage(context.Background(), json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"boom","arguments":{}}}`))
+	resp := mcpServer.HandleMessage(ctx, json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"boom","arguments":{}}}`))
 	rpcErr, ok := resp.(mcp.JSONRPCError)
 	if !ok {
 		t.Fatalf("expected JSON-RPC error after panic, got %#v", resp)

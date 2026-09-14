@@ -47,5 +47,14 @@ func endpointURL(host string, port int, tls bool) string {
 // newMCPServer builds the MCP server with panic recovery for tool and
 // resource handlers so a bad argument cannot take down a session.
 func newMCPServer() *server.MCPServer {
-	return server.NewMCPServer(mcpServerName, buildVersion, server.WithRecovery(), server.WithResourceRecovery())
+	srv := server.NewMCPServer(mcpServerName, buildVersion,
+		server.WithRecovery(),
+		server.WithResourceRecovery(),
+		server.WithToolFilter(grantToolFilter),
+	)
+	toolIsReadOnly = func(name string) bool {
+		tool := srv.GetTool(name)
+		return tool != nil && isReadOnlyTool(tool.Tool)
+	}
+	return srv
 }

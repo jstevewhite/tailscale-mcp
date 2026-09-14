@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 	"tailscale.com/tailcfg"
 )
@@ -76,17 +77,51 @@ func appendUnique(dst []string, src []string) []string {
 	return dst
 }
 
+// readOnlyWildcard is a tool grant that matches every tool whose MCP
+// annotations mark it read-only, and nothing that mutates.
+const readOnlyWildcard = "read:*"
+
 // AllowsTool reports whether the grant permits calling the named tool.
-func (c *MCPCapability) AllowsTool(name string) bool {
+// readOnly is the tool's own annotation and is what read:* keys on.
+func (c *MCPCapability) AllowsTool(name string, readOnly bool) bool {
 	if c == nil {
 		return false
 	}
 	for _, allowed := range c.Tools {
-		if allowed == "*" || allowed == name {
+		switch allowed {
+		case "*", name:
 			return true
+		case readOnlyWildcard:
+			if readOnly {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// toolIsReadOnly resolves a registered tool's read-only annotation. It is
+// installed by newMCPServer; until then no tool counts as read-only.
+var toolIsReadOnly = func(string) bool { return false }
+
+func isReadOnlyTool(tool mcp.Tool) bool {
+	return tool.Annotations.ReadOnlyHint != nil && *tool.Annotations.ReadOnlyHint
+}
+
+// grantToolFilter trims tools/list to what the caller's grant allows, so an
+// agent is not shown a hundred tools it will be denied on.
+func grantToolFilter(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
+	caps, _, _ := capabilitiesFromContext(ctx)
+	if caps == nil {
+		return nil
+	}
+	allowed := make([]mcp.Tool, 0, len(tools))
+	for _, tool := range tools {
+		if caps.AllowsTool(tool.Name, isReadOnlyTool(tool)) {
+			allowed = append(allowed, tool)
+		}
+	}
+	return allowed
 }
 
 // AllowsResource reports whether the grant permits reading the resource URI.
@@ -122,7 +157,8 @@ func resourceGrantMatches(grant, uri string) bool {
 }
 
 func checkToolAccess(ctx context.Context, toolName string) error {
-	return checkAccess(ctx, toolName, "tool", (*MCPCapability).AllowsTool, func(c *MCPCapability) []string { return c.Tools })
+	allows := func(c *MCPCapability, name string) bool { return c.AllowsTool(name, toolIsReadOnly(name)) }
+	return checkAccess(ctx, toolName, "tool", allows, func(c *MCPCapability) []string { return c.Tools })
 }
 
 func checkResourceAccess(ctx context.Context, resourceURI string) error {

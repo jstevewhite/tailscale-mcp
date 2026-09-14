@@ -1,1 +1,0 @@
-{"DNS":{"Routes":{"ison-gecko.ts.net.":null,"ts.net.":[{"Addr":"199.247.155.53"},{"Addr":"2620:111:8007::53"}]},"Domains":["ison-gecko.ts.net"],"Proxied":true,"CertDomains":["ts-mcp.ison-gecko.ts.net"],"ExitNodeFilteredSet":[".ts.net",".tailscale.net"]}}

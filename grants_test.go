@@ -29,7 +29,7 @@ func TestParseMCPCapabilitiesUnionsAllGrantEntries(t *testing.T) {
 		t.Fatal("expected capabilities, got nil")
 	}
 	for _, tool := range []string{"list_all_devices", "get_device_info"} {
-		if !caps.AllowsTool(tool) {
+		if !caps.AllowsTool(tool, false) {
 			t.Errorf("tool %q should be allowed by the union of grants", tool)
 		}
 	}
@@ -38,7 +38,7 @@ func TestParseMCPCapabilitiesUnionsAllGrantEntries(t *testing.T) {
 			t.Errorf("resource %q should be allowed by the union of grants", res)
 		}
 	}
-	if caps.AllowsTool("tailscale_delete_device") {
+	if caps.AllowsTool("tailscale_delete_device", false) {
 		t.Error("ungranted tool was allowed")
 	}
 }

@@ -196,7 +196,19 @@ Tool grants:
 * `get_device_info`: Allow querying specific device details
 * `list_all_devices`: Allow listing all devices
 * `tailscale_<operation>`: Allow a generated Tailscale API tool, for example `tailscale_get_dns_configuration`
+* `read:*`: Allow every tool whose MCP annotation marks it read-only, and nothing that mutates
 * `*`: Allow all tools
+
+The server advertises only the tools a caller's grant allows. With `read:*` an agent sees roughly forty read-only tools instead of the full set of over a hundred, which keeps its context small and stops it from planning around tools it cannot call. A tool outside the grant is neither listed nor callable; calling it by name returns "tool not found". Resources are always listed, but reading one still requires a matching resource grant.
+
+A sensible starting grant for an agent:
+
+```json
+"jaxxstorm.com/cap/mcp": [{
+  "tools": ["read:*"],
+  "resources": ["*"]
+}]
+```
 
 Resource grants:
 

@@ -14,7 +14,7 @@ func TestParseLocalGrantsAcceptsCapabilityJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !caps.AllowsTool("anything") || !caps.AllowsResource("bootstrap://status") || caps.AllowsResource("tailscale://devices") {
+	if !caps.AllowsTool("anything", false) || !caps.AllowsResource("bootstrap://status") || caps.AllowsResource("tailscale://devices") {
 		t.Fatalf("unexpected capabilities %#v", caps)
 	}
 }
@@ -52,7 +52,7 @@ func TestLocalGrantMiddlewareInjectsCapabilities(t *testing.T) {
 	if gotUser != localGrantUser {
 		t.Fatalf("user = %q, want %q", gotUser, localGrantUser)
 	}
-	if !gotCaps.AllowsTool("list_all_devices") {
+	if !gotCaps.AllowsTool("list_all_devices", false) {
 		t.Fatal("capabilities not injected")
 	}
 }
