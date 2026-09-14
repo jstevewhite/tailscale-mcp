@@ -1,5 +1,7 @@
 # Tailscale MCP Server
 
+> **This is a fork** of [jaxxstorm/tailscale-mcp](https://github.com/jaxxstorm/tailscale-mcp), maintained at [jstevewhite/tailscale-mcp](https://github.com/jstevewhite/tailscale-mcp). It fixes the build, makes the stdio and loopback paths authorizable, and adds HTTPS on the tailnet, refreshable federated credentials, `read:*` and `group:` grant selectors, grant-filtered tool lists, and named tool profiles selectable by URL. See the [Usage Guide](docs/usage.md) for details. Upstream is unchanged and credit for the original design goes to its author.
+
 An MCP (Model Context Protocol) server for Tailscale, enabling detailed queries and operations for devices, DNS, users, invites, keys, webhooks, services, logging, policy validation, and tailnet settings. It serves MCP over Streamable HTTP on `/mcp` and uses Tailscale OAuth grants for fine-grained access control.
 
 ## Features
