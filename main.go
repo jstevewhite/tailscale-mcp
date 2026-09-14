@@ -42,7 +42,8 @@ type CLI struct {
 	Credential    string `env:"TAILSCALE_OAUTH_TOKEN" required:"" help:"OAuth, federated, or bearer credential for Tailscale startup and API access"`
 	OAuthClientID string `name:"oauth-client-id" env:"TAILSCALE_OAUTH_CLIENT_ID" help:"OAuth client ID to use when TAILSCALE_OAUTH_TOKEN is a raw tskey-client secret"`
 	Hostname      string `env:"TS_HOSTNAME" default:"ts-mcp"`
-	Port          int    `env:"TS_PORT" default:"8080"`
+	Port          int    `env:"TS_PORT" help:"Listen port; defaults to 8080, or 443 with --tls"`
+	TLS           bool   `env:"TS_TLS" help:"Serve HTTPS on the tailnet using a certificate issued through Tailscale (requires HTTPS enabled for the tailnet)"`
 	AdvertiseTags string `env:"TS_ADVERTISE_TAGS" help:"Comma-separated Tailscale tags to advertise when minting tsnet auth keys from OAuth or federated credentials"`
 	State         string `env:"TSNET_STATE" help:"tsnet state location: empty or file:// uses ./tsnet-<hostname>/tailscaled.state; file://<dir> uses <dir>/tailscaled.state; kube://<secret> uses a Kubernetes Secret; aws://<region>/<account>/parameter/<name> or aws://arn:aws:ssm:... uses AWS SSM"`
 	ForceLogin    bool   `env:"TSNET_FORCE_LOGIN" help:"Force tsnet to use the supplied startup credential even when local state exists"`
@@ -601,11 +602,13 @@ func main() {
 		return
 	}
 
+	cli.Port = resolveListenPort(cli.Port, cli.TLS)
 	logger.Info("Starting ts-mcp",
 		zap.String("version", buildVersion),
 		zap.String("tailnet", cli.Tailnet),
 		zap.String("hostname", cli.Hostname),
 		zap.Int("port", cli.Port),
+		zap.Bool("tls", cli.TLS),
 		zap.Bool("debug", cli.Debug),
 		zap.Bool("stdio", cli.Stdio),
 	)
@@ -692,14 +695,24 @@ func main() {
 	}
 	defer tsServer.Close()
 
-	tsLn, err := tsServer.Listen("tcp", fmt.Sprintf(":%d", cli.Port))
+	listenAddr := fmt.Sprintf(":%d", cli.Port)
+	var tsLn net.Listener
+	if cli.TLS {
+		tsLn, err = tsServer.ListenTLS("tcp", listenAddr)
+	} else {
+		tsLn, err = tsServer.Listen("tcp", listenAddr)
+	}
 	if err != nil {
-		logger.Fatal("tsnet listen error", zap.Error(err))
+		logger.Fatal("tsnet listen error", zap.Bool("tls", cli.TLS), zap.Error(err))
+	}
+	tailnetHost := cli.Hostname
+	if status, err := tsServer.Up(context.Background()); err == nil && status.Self != nil && status.Self.DNSName != "" {
+		tailnetHost = strings.TrimSuffix(status.Self.DNSName, ".")
 	}
 	logger.Info("Serving MCP via Tailscale",
 		zap.String("transport", streamableHTTPTransportName),
 		zap.String("address", tsLn.Addr().String()),
-		zap.String("endpoint", mcpEndpointPath),
+		zap.String("url", endpointURL(tailnetHost, cli.Port, cli.TLS)),
 	)
 
 	streamable := server.NewStreamableHTTPServer(
@@ -721,8 +734,7 @@ func main() {
 	go func() {
 		logger.Info("Serving MCP locally",
 			zap.String("transport", streamableHTTPTransportName),
-			zap.String("address", localAddr),
-			zap.String("endpoint", mcpEndpointPath),
+			zap.String("url", endpointURL("127.0.0.1", cli.Port, false)),
 			zap.Bool("local_grants", localGrants != nil),
 		)
 		if err := http.Serve(localLn, localMux); err != nil {

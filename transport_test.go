@@ -297,3 +297,42 @@ func TestAllowOriginMiddlewareAllowsSameHostOrigin(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
 	}
 }
+
+func TestResolveListenPortDefaultsByScheme(t *testing.T) {
+	tests := []struct {
+		name string
+		port int
+		tls  bool
+		want int
+	}{
+		{"plain default", 0, false, 8080},
+		{"tls default", 0, true, 443},
+		{"explicit port wins", 9000, true, 9000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveListenPort(tt.port, tt.tls); got != tt.want {
+				t.Fatalf("resolveListenPort(%d, %v) = %d, want %d", tt.port, tt.tls, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEndpointURLUsesSchemeAndOmitsDefaultPort(t *testing.T) {
+	tests := []struct {
+		host string
+		port int
+		tls  bool
+		want string
+	}{
+		{"ts-mcp.example.ts.net", 8080, false, "http://ts-mcp.example.ts.net:8080/mcp"},
+		{"ts-mcp.example.ts.net", 443, true, "https://ts-mcp.example.ts.net/mcp"},
+		{"ts-mcp.example.ts.net", 8443, true, "https://ts-mcp.example.ts.net:8443/mcp"},
+		{"127.0.0.1", 80, false, "http://127.0.0.1/mcp"},
+	}
+	for _, tt := range tests {
+		if got := endpointURL(tt.host, tt.port, tt.tls); got != tt.want {
+			t.Errorf("endpointURL(%q, %d, %v) = %q, want %q", tt.host, tt.port, tt.tls, got, tt.want)
+		}
+	}
+}
