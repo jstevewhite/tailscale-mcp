@@ -12,10 +12,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/jaxxstorm/tailscale-mcp/internal/curatedtools"
@@ -59,6 +62,11 @@ const (
 	streamableHTTPTransportName = "Streamable HTTP"
 	mcpEndpointPath             = "/mcp"
 	tailscaleOAuthTokenEnv      = "TAILSCALE_OAUTH_TOKEN"
+
+	credentialValidationTimeout = 30 * time.Second
+	httpReadHeaderTimeout       = 10 * time.Second
+	httpIdleTimeout             = 120 * time.Second
+	shutdownTimeout             = 10 * time.Second
 )
 
 var buildVersion = "dev"
@@ -601,13 +609,24 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func allowOriginMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin != "" && !strings.HasPrefix(origin, "http://"+r.Host) && !strings.HasPrefix(origin, "https://"+r.Host) {
-			logger.Warn("Forbidden origin", zap.String("origin", origin))
+		if origin != "" && !originMatchesHost(origin, r.Host) {
+			logger.Warn("Forbidden origin", zap.String("origin", origin), zap.String("host", r.Host))
 			http.Error(w, "forbidden origin", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// originMatchesHost reports whether a browser Origin names exactly the host
+// (and port) this request was addressed to. Prefix comparison is not enough:
+// with no port in Host, http://ts-mcp.example.evil would pass.
+func originMatchesHost(origin, host string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, host)
 }
 
 func streamableHTTPHandler(streamable http.Handler, tsServer *tsnet.Server) http.Handler {
@@ -682,11 +701,13 @@ func main() {
 		Tailnet:    cli.Tailnet,
 		HTTPClient: credential.AdminHTTPClient(nil, "https://api.tailscale.com"),
 	}
-	if err := ValidateCredential(context.Background(), tsAdminClient); err != nil {
+	validateCtx, cancelValidate := context.WithTimeout(context.Background(), credentialValidationTimeout)
+	defer cancelValidate()
+	if err := ValidateCredential(validateCtx, tsAdminClient); err != nil {
 		logger.Fatal("Tailscale credential validation failed", zap.Error(err))
 	}
 
-	mcpServer := server.NewMCPServer(mcpServerName, buildVersion)
+	mcpServer := newMCPServer()
 
 	registerCoreMCP(mcpServer, tsAdminClient)
 	readapi.RegisterTools(mcpServer, readAPIClient, checkToolAccess)
@@ -718,8 +739,6 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to configure tsnet server", zap.Error(err))
 	}
-	defer tsServer.Close()
-
 	listenAddr := fmt.Sprintf(":%d", cli.Port)
 	var tsLn net.Listener
 	if cli.TLS {
@@ -756,20 +775,56 @@ func main() {
 	if err != nil {
 		logger.Fatal("Local listen error", zap.String("address", localAddr), zap.Error(err))
 	}
+	localServer := newHTTPServer(localMux)
+	tailnetServer := newHTTPServer(tailnetMux)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	errCh := make(chan error, 2)
+
 	go func() {
 		logger.Info("Serving MCP locally",
 			zap.String("transport", streamableHTTPTransportName),
 			zap.String("url", endpointURL("127.0.0.1", cli.Port, false)),
 			zap.Bool("local_grants", localGrants != nil),
 		)
-		if err := http.Serve(localLn, localMux); err != nil {
-			logger.Fatal("Local server error", zap.Error(err))
-		}
+		errCh <- serveNamed("local", localServer, localLn)
+	}()
+	go func() {
+		errCh <- serveNamed("tailscale", tailnetServer, tsLn)
 	}()
 
-	if err := http.Serve(tsLn, tailnetMux); err != nil {
-		logger.Fatal("Tailscale server error", zap.Error(err))
+	select {
+	case err := <-errCh:
+		logger.Error("Server stopped unexpectedly", zap.Error(err))
+	case <-ctx.Done():
+		logger.Info("Shutdown signal received")
 	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	_ = localServer.Shutdown(shutdownCtx)
+	_ = tailnetServer.Shutdown(shutdownCtx)
+	if err := tsServer.Close(); err != nil {
+		logger.Warn("tsnet close error", zap.Error(err))
+	}
+	logger.Info("Shutdown complete")
+}
+
+func newHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+	}
+}
+
+func serveNamed(name string, srv *http.Server, ln net.Listener) error {
+	err := srv.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return fmt.Errorf("%s server: %w", name, err)
 }
 
 func registerCoreMCP(mcpServer *server.MCPServer, tsAdminClient *tsapi.Client) {
@@ -905,12 +960,11 @@ func registerCoreMCP(mcpServer *server.MCPServer, tsAdminClient *tsapi.Client) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 
-		args, ok := req.Params.Arguments.(map[string]any)
-		if !ok {
-			logger.Error("Invalid arguments format for get_device_info")
-			return mcp.NewToolResultError("invalid arguments format"), nil
+		deviceID, ok := req.GetArguments()["device"].(string)
+		if !ok || strings.TrimSpace(deviceID) == "" {
+			logger.Error("Invalid device argument for get_device_info")
+			return mcp.NewToolResultError("device must be a non-empty string"), nil
 		}
-		deviceID := args["device"].(string)
 		logger.Debug("Tool parameters", zap.String("device_id", deviceID))
 
 		device, err := findDevice(ctx, tsAdminClient, deviceID)
@@ -936,7 +990,7 @@ func registerCoreMCP(mcpServer *server.MCPServer, tsAdminClient *tsapi.Client) {
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			logger.Debug("Tool called", zap.String("tool", "list_all_devices"))
 			if err := checkToolAccess(ctx, "list_all_devices"); err != nil {
-				return mcp.NewToolResultText(err.Error()), nil
+				return mcp.NewToolResultError(err.Error()), nil
 			}
 
 			devices, err := tsAdminClient.Devices().List(ctx)

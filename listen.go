@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // resolveListenPort picks the listen port: an explicit port wins, otherwise
@@ -31,4 +33,10 @@ func endpointURL(host string, port int, tls bool) string {
 		return fmt.Sprintf("%s://%s%s", scheme, host, mcpEndpointPath)
 	}
 	return fmt.Sprintf("%s://%s%s", scheme, net.JoinHostPort(host, strconv.Itoa(port)), mcpEndpointPath)
+}
+
+// newMCPServer builds the MCP server with panic recovery for tool and
+// resource handlers so a bad argument cannot take down a session.
+func newMCPServer() *server.MCPServer {
+	return server.NewMCPServer(mcpServerName, buildVersion, server.WithRecovery(), server.WithResourceRecovery())
 }
