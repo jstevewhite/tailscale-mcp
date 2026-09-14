@@ -561,6 +561,9 @@ func initLogger(debug bool) {
 	if isTTY {
 		// Pretty console output for TTY
 		config = zap.NewDevelopmentConfig()
+		// Keep the console encoder but drop development mode's stack traces
+		// on every warning; they are noise for an operator.
+		config.Development = false
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 		config.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout("15:04:05")
 	} else {
