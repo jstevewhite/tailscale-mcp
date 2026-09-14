@@ -130,7 +130,7 @@ func TestNetworkFlowLogToolChecksAccessBeforeValidation(t *testing.T) {
 	RegisterTools(mcpServer, Client{}, func(_ context.Context, tool string) error {
 		checkedTool = tool
 		return denied
-	})
+	}, nil)
 
 	tool := mcpServer.GetTool("tailscale_list_network_flow_logs")
 	if tool == nil {
@@ -157,7 +157,7 @@ func TestNetworkFlowLogToolRejectsInvalidInputWithoutAPICall(t *testing.T) {
 	defer api.Close()
 
 	mcpServer := server.NewMCPServer("test", "0.0.1")
-	RegisterTools(mcpServer, Client{Tailnet: "example.com", BaseURL: api.URL}, func(context.Context, string) error { return nil })
+	RegisterTools(mcpServer, Client{Tailnet: "example.com", BaseURL: api.URL}, func(context.Context, string) error { return nil }, nil)
 	tool := mcpServer.GetTool("tailscale_list_network_flow_logs")
 	result, err := tool.Handler(context.Background(), mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"cursor": "invalid"}}})
 	if err != nil {

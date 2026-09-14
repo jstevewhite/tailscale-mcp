@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 
+	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -46,7 +47,11 @@ func endpointURL(host string, port int, tls bool) string {
 
 // newMCPServer builds the MCP server with panic recovery for tool and
 // resource handlers so a bad argument cannot take down a session.
+// toolCatalog records every registered tool; newMCPServer resets it.
+var toolCatalog = toolmeta.NewCatalog()
+
 func newMCPServer() *server.MCPServer {
+	toolCatalog = toolmeta.NewCatalog()
 	srv := server.NewMCPServer(mcpServerName, buildVersion,
 		server.WithRecovery(),
 		server.WithResourceRecovery(),

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jaxxstorm/tailscale-mcp/internal/readapi"
+	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -22,6 +23,7 @@ type Options struct {
 	Client   readapi.Client
 	Check    readapi.AccessChecker
 	LocalCLI bool
+	Catalog  *toolmeta.Catalog
 }
 
 type toolDef struct {
@@ -34,6 +36,7 @@ type toolDef struct {
 	Idempotent  bool
 	Confirm     string
 	Handler     func(context.Context, map[string]any) (any, error)
+	Group       string // set when there is no Endpoint to derive it from
 }
 
 func RegisterAll(s *server.MCPServer, opts Options) {
@@ -94,6 +97,13 @@ func registerTool(s *server.MCPServer, opts Options, def toolDef) {
 		}
 		return mcp.NewToolResultText(text), nil
 	})
+	if opts.Catalog != nil {
+		group := def.Group
+		if group == "" {
+			group = toolmeta.GroupForPath(def.Endpoint.Path)
+		}
+		opts.Catalog.Add(toolmeta.Meta{Name: def.Name, Group: group, ReadOnly: def.ReadOnly})
+	}
 }
 
 func validateConfirm(want string, args map[string]any) error {
@@ -178,6 +188,7 @@ func statusTools(opts Options) []toolDef {
 		Description: "Check Tailscale Admin API health by composing device and tailnet settings reads.",
 		ReadOnly:    true,
 		Idempotent:  true,
+		Group:       toolmeta.GroupSettings,
 		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			devices, devicesErr := opts.Client.Do(ctx, readapi.Endpoint{Method: "GET", Path: "/tailnet/{tailnet}/devices", Parameters: []readapi.Parameter{readapi.Query("fields", "Fields", false)}}, map[string]any{"fields": "id"})
 			settings, settingsErr := opts.Client.Do(ctx, readapi.Endpoint{Method: "GET", Path: "/tailnet/{tailnet}/settings"}, nil)
@@ -209,14 +220,14 @@ func statusTools(opts Options) []toolDef {
 func aclTools(opts Options) []toolDef {
 	acl := readapi.Endpoint{Method: "GET", Path: "/tailnet/{tailnet}/acl"}
 	return []toolDef{
-		{Name: "tailscale_get_acl", Description: "Get the current HuJSON ACL policy and ETag for safe updates.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, args map[string]any) (any, error) {
+		{Name: "tailscale_get_acl", Group: toolmeta.GroupPolicy, Description: "Get the current HuJSON ACL policy and ETag for safe updates.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			res, err := opts.Client.DoRaw(ctx, acl, args, nil, map[string]string{"Accept": "application/hujson"})
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{"policy": string(res.Body), "etag": res.Header.Get("ETag")}, nil
 		}},
-		{Name: "tailscale_validate_acl", Description: "Validate HuJSON ACL policy without applying it.", ReadOnly: true, Idempotent: true, Options: []mcp.ToolOption{mcp.WithString("policy", mcp.Required(), mcp.Description("Full HuJSON policy text"))}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
+		{Name: "tailscale_validate_acl", Group: toolmeta.GroupPolicy, Description: "Validate HuJSON ACL policy without applying it.", ReadOnly: true, Idempotent: true, Options: []mcp.ToolOption{mcp.WithString("policy", mcp.Required(), mcp.Description("Full HuJSON policy text"))}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			res, err := opts.Client.DoRaw(ctx, readapi.Endpoint{Method: "POST", Path: "/tailnet/{tailnet}/acl/validate"}, args, []byte(stringArg(args, "policy")), map[string]string{"Accept": "application/hujson", "Content-Type": "application/hujson"})
 			if err != nil {
 				return nil, err
@@ -227,14 +238,14 @@ func aclTools(opts Options) []toolDef {
 			}
 			return text, nil
 		}},
-		{Name: "tailscale_preview_acl", Description: "Preview ACL rules for a user or IP:port without applying policy.", ReadOnly: true, Idempotent: true, Options: []mcp.ToolOption{mcp.WithString("policy", mcp.Required()), mcp.WithString("type", mcp.Required(), mcp.Description("user or ipport")), mcp.WithString("previewFor", mcp.Required())}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
+		{Name: "tailscale_preview_acl", Group: toolmeta.GroupPolicy, Description: "Preview ACL rules for a user or IP:port without applying policy.", ReadOnly: true, Idempotent: true, Options: []mcp.ToolOption{mcp.WithString("policy", mcp.Required()), mcp.WithString("type", mcp.Required(), mcp.Description("user or ipport")), mcp.WithString("previewFor", mcp.Required())}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			res, err := opts.Client.DoRaw(ctx, readapi.Endpoint{Method: "POST", Path: "/tailnet/{tailnet}/acl/preview", Parameters: []readapi.Parameter{readapi.Query("type", "Preview type", true), readapi.Query("previewFor", "Preview subject", true)}}, args, []byte(stringArg(args, "policy")), map[string]string{"Accept": "application/json", "Content-Type": "application/hujson"})
 			if err != nil {
 				return nil, err
 			}
 			return json.RawMessage(res.Body), nil
 		}},
-		{Name: "tailscale_update_acl", Description: "Update HuJSON ACL policy using an ETag to avoid overwriting concurrent edits.", Idempotent: true, Confirm: "setPolicyFile", Options: []mcp.ToolOption{mcp.WithString("policy", mcp.Required()), mcp.WithString("etag", mcp.Required())}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
+		{Name: "tailscale_update_acl", Group: toolmeta.GroupPolicy, Description: "Update HuJSON ACL policy using an ETag to avoid overwriting concurrent edits.", Idempotent: true, Confirm: "setPolicyFile", Options: []mcp.ToolOption{mcp.WithString("policy", mcp.Required()), mcp.WithString("etag", mcp.Required())}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			res, err := opts.Client.DoRaw(ctx, readapi.Endpoint{Method: "POST", Path: "/tailnet/{tailnet}/acl"}, args, []byte(stringArg(args, "policy")), map[string]string{"Accept": "application/hujson", "Content-Type": "application/hujson", "If-Match": stringArg(args, "etag")})
 			if err != nil {
 				return nil, err
@@ -265,7 +276,7 @@ func deviceTools(opts Options) []toolDef {
 		{Name: "tailscale_device_set_posture_attribute", Description: "Set a custom posture attribute on a device.", Idempotent: true, Confirm: "setCustomDevicePostureAttributes", Endpoint: readapi.Endpoint{Method: "POST", Path: "/device/{deviceId}/attributes/{attributeKey}", Parameters: []readapi.Parameter{readapi.RequiredPath("deviceId", "Device ID"), readapi.RequiredPath("attributeKey", "Attribute key")}, Body: true}, Options: []mcp.ToolOption{mcp.WithString("deviceId", mcp.Required()), mcp.WithString("attributeKey", mcp.Required()), mcp.WithString("value", mcp.Required()), mcp.WithString("expiry")}, Handler: attributeSetBody(opts)},
 		{Name: "tailscale_device_delete_posture_attribute", Description: "Delete a custom posture attribute from a device.", Destructive: true, Idempotent: true, Confirm: "deleteCustomDevicePostureAttributes", Endpoint: readapi.Endpoint{Method: "DELETE", Path: "/device/{deviceId}/attributes/{attributeKey}", Parameters: []readapi.Parameter{readapi.RequiredPath("deviceId", "Device ID"), readapi.RequiredPath("attributeKey", "Attribute key")}}, Options: []mcp.ToolOption{mcp.WithString("deviceId", mcp.Required()), mcp.WithString("attributeKey", mcp.Required())}},
 		{Name: "tailscale_device_batch_update_posture_attributes", Description: "Batch update custom posture attributes.", Idempotent: true, Confirm: "batchUpdateCustomDevicePostureAttributes", Endpoint: readapi.Endpoint{Method: "PATCH", Path: "/tailnet/{tailnet}/device-attributes", Body: true}, Options: []mcp.ToolOption{mcp.WithObject("nodes", mcp.Required()), mcp.WithString("comment")}, Handler: batchAttributesBody(opts)},
-		{Name: "tailscale_set_devices_authorized", Description: "Authorize or deauthorize multiple devices and report partial failures.", Destructive: true, Idempotent: true, Confirm: "tailscale_set_devices_authorized", Options: []mcp.ToolOption{mcp.WithArray("deviceIds", mcp.Required(), mcp.WithStringItems()), mcp.WithBoolean("authorized", mcp.Required())}, Handler: bulkAuthorizeHandler(opts)},
+		{Name: "tailscale_set_devices_authorized", Group: toolmeta.GroupDevices, Description: "Authorize or deauthorize multiple devices and report partial failures.", Destructive: true, Idempotent: true, Confirm: "tailscale_set_devices_authorized", Options: []mcp.ToolOption{mcp.WithArray("deviceIds", mcp.Required(), mcp.WithStringItems()), mcp.WithBoolean("authorized", mcp.Required())}, Handler: bulkAuthorizeHandler(opts)},
 	}
 }
 
@@ -372,10 +383,10 @@ func isCIDR(value string) bool {
 
 func localCLITools() []toolDef {
 	return []toolDef{
-		{Name: "tailscale_local_status", Description: "Get this machine's local Tailscale status via tailscale status --json.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+		{Name: "tailscale_local_status", Group: toolmeta.GroupLocal, Description: "Get this machine's local Tailscale status via tailscale status --json.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			return runTailscaleCLI(ctx, []string{"status", "--json"}, true)
 		}},
-		{Name: "tailscale_ping", Description: "Probe latency to a tailnet node via tailscale ping.", ReadOnly: true, Idempotent: true, Options: []mcp.ToolOption{mcp.WithString("target", mcp.Required()), mcp.WithNumber("count")}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
+		{Name: "tailscale_ping", Group: toolmeta.GroupLocal, Description: "Probe latency to a tailnet node via tailscale ping.", ReadOnly: true, Idempotent: true, Options: []mcp.ToolOption{mcp.WithString("target", mcp.Required()), mcp.WithNumber("count")}, Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			target := stringArg(args, "target")
 			if !validPingTarget(target) {
 				return nil, fmt.Errorf("invalid ping target %q", target)
@@ -387,10 +398,10 @@ func localCLITools() []toolDef {
 			cliArgs = append(cliArgs, target)
 			return runTailscaleCLI(ctx, cliArgs, false)
 		}},
-		{Name: "tailscale_netcheck", Description: "Run Tailscale network diagnostics via tailscale netcheck --format=json.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+		{Name: "tailscale_netcheck", Group: toolmeta.GroupLocal, Description: "Run Tailscale network diagnostics via tailscale netcheck --format=json.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			return runTailscaleCLI(ctx, []string{"netcheck", "--format=json"}, true)
 		}},
-		{Name: "tailscale_local_version", Description: "Get the local tailscale CLI version.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+		{Name: "tailscale_local_version", Group: toolmeta.GroupLocal, Description: "Get the local tailscale CLI version.", ReadOnly: true, Idempotent: true, Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			return runTailscaleCLI(ctx, []string{"version"}, false)
 		}},
 	}

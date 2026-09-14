@@ -23,6 +23,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/jaxxstorm/tailscale-mcp/internal/curatedtools"
 	"github.com/jaxxstorm/tailscale-mcp/internal/readapi"
+	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/tailscale/hujson"
@@ -721,9 +722,9 @@ func main() {
 	mcpServer := newMCPServer()
 
 	registerCoreMCP(mcpServer, tsAdminClient)
-	readapi.RegisterTools(mcpServer, readAPIClient, checkToolAccess)
+	readapi.RegisterTools(mcpServer, readAPIClient, checkToolAccess, toolCatalog)
 	readapi.RegisterResources(mcpServer, readAPIClient, checkResourceAccess)
-	curatedtools.RegisterAll(mcpServer, curatedtools.Options{Client: readAPIClient, Check: checkToolAccess, LocalCLI: cli.LocalCLI})
+	curatedtools.RegisterAll(mcpServer, curatedtools.Options{Client: readAPIClient, Check: checkToolAccess, LocalCLI: cli.LocalCLI, Catalog: toolCatalog})
 
 	// Deprecated stdio compatibility mode.
 	if cli.Stdio {
@@ -1023,6 +1024,9 @@ func registerCoreMCP(mcpServer *server.MCPServer, tsAdminClient *tsapi.Client) {
 			logger.Info("Tool executed successfully", zap.String("tool", "list_all_devices"), zap.Int("device_count", len(devices)))
 			return mcp.NewToolResultText(string(data)), nil
 		})
+
+	toolCatalog.Add(toolmeta.Meta{Name: "get_device_info", Group: toolmeta.GroupDevices, ReadOnly: true})
+	toolCatalog.Add(toolmeta.Meta{Name: "list_all_devices", Group: toolmeta.GroupDevices, ReadOnly: true})
 }
 
 // findDevice finds a device by ID, hostname, or IP and fetches detailed information.

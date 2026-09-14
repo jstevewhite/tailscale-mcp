@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -21,7 +22,7 @@ func withAccess[T any](ctx context.Context, item string, check AccessChecker, ca
 	return call()
 }
 
-func RegisterTools(mcpServer *server.MCPServer, client Client, check AccessChecker) {
+func RegisterTools(mcpServer *server.MCPServer, client Client, check AccessChecker, catalog *toolmeta.Catalog) {
 	var networkFlowLogs Endpoint
 	for _, endpoint := range ToolEndpoints() {
 		endpoint := endpoint
@@ -60,10 +61,19 @@ func RegisterTools(mcpServer *server.MCPServer, client Client, check AccessCheck
 			}
 			return mcp.NewToolResultText(prettyJSON(data)), nil
 		})
+		record(catalog, endpoint)
 	}
 	if networkFlowLogs.OperationID != "" {
 		registerNetworkFlowLogTool(mcpServer, client, check, networkFlowLogs)
+		record(catalog, networkFlowLogs)
 	}
+}
+
+func record(catalog *toolmeta.Catalog, endpoint Endpoint) {
+	if catalog == nil {
+		return
+	}
+	catalog.Add(toolmeta.Meta{Name: endpoint.ToolName, Group: toolmeta.GroupForPath(endpoint.Path), ReadOnly: endpoint.ToolHints().ReadOnly})
 }
 
 func ToolHintOptions(endpoint Endpoint) []mcp.ToolOption {

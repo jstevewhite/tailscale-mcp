@@ -62,7 +62,7 @@ func TestEndpointToolHints(t *testing.T) {
 
 func TestRegisterToolsAppliesToolHints(t *testing.T) {
 	mcpServer := server.NewMCPServer("test", "0.0.1")
-	RegisterTools(mcpServer, Client{}, func(context.Context, string) error { return nil })
+	RegisterTools(mcpServer, Client{}, func(context.Context, string) error { return nil }, nil)
 
 	tests := []struct {
 		tool string
