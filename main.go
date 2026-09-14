@@ -547,157 +547,6 @@ func initLogger(debug bool) {
 	zap.ReplaceGlobals(logger)
 }
 
-// getTailscaleCapabilities extracts MCP capabilities from the request context
-func getTailscaleCapabilities(ctx context.Context) (*MCPCapability, string, error) {
-	// The CapMap is actually tailcfg.PeerCapMap, but we can treat it as map[string]interface{}
-	capMapRaw := ctx.Value("ts-grants")
-	if capMapRaw == nil {
-		return nil, "", fmt.Errorf("no tailscale grants found in context")
-	}
-
-	// Convert to map[string]interface{} - this should work regardless of the underlying type
-	capBytes, err := json.Marshal(capMapRaw)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to marshal capMap: %v", err)
-	}
-
-	var capMap map[string]interface{}
-	if err := json.Unmarshal(capBytes, &capMap); err != nil {
-		return nil, "", fmt.Errorf("failed to unmarshal capMap: %v", err)
-	}
-
-	userLogin, ok := ctx.Value("ts-user").(string)
-	if !ok {
-		userLogin = "unknown"
-	}
-
-	logger.Info("Checking capabilities",
-		zap.String("user", userLogin),
-		zap.Strings("grant_keys", func() []string {
-			var keys []string
-			for k := range capMap {
-				keys = append(keys, k)
-			}
-			return keys
-		}()),
-	)
-
-	// Look for jaxxstorm.com/cap/mcp capabilities
-	if rawCaps, ok := capMap["jaxxstorm.com/cap/mcp"]; ok {
-		logger.Debug("Found MCP capabilities", zap.Any("capabilities", rawCaps))
-
-		// Marshal and unmarshal to handle the interface{} properly
-		capBytes, err := json.Marshal(rawCaps)
-		if err != nil {
-			logger.Error("Failed to marshal capability", zap.Error(err))
-			return nil, userLogin, fmt.Errorf("failed to marshal capability: %v", err)
-		}
-
-		logger.Debug("Capability JSON", zap.String("json", string(capBytes)))
-
-		// Parse as array of MCPCapability (similar to TACLAppCapabilities pattern)
-		var mcpCaps []MCPCapability
-		if err := json.Unmarshal(capBytes, &mcpCaps); err != nil {
-			logger.Debug("Failed to parse as array, trying single object", zap.Error(err))
-
-			// Try parsing as single object
-			var mcpCap MCPCapability
-			if err := json.Unmarshal(capBytes, &mcpCap); err != nil {
-				logger.Error("Failed to parse MCP capability", zap.Error(err))
-				return nil, userLogin, fmt.Errorf("failed to parse MCP capability: %v", err)
-			}
-
-			logger.Info("Parsed single capability",
-				zap.Strings("tools", mcpCap.Tools),
-				zap.Strings("resources", mcpCap.Resources),
-			)
-			return &mcpCap, userLogin, nil
-		}
-
-		// If we successfully parsed as array, take the first one
-		if len(mcpCaps) > 0 {
-			logger.Info("Parsed array capability",
-				zap.Strings("tools", mcpCaps[0].Tools),
-				zap.Strings("resources", mcpCaps[0].Resources),
-			)
-			return &mcpCaps[0], userLogin, nil
-		}
-	}
-
-	logger.Info("No MCP capabilities found")
-	return nil, userLogin, nil
-}
-
-// checkToolAccess validates if the user has access to a specific tool
-func checkToolAccess(ctx context.Context, toolName string) error {
-	caps, user, err := getTailscaleCapabilities(ctx)
-	if err != nil {
-		logger.Error("Failed to get capabilities", zap.Error(err))
-		errorJSON := createPermissionErrorJSON(user, toolName, "tool", []string{})
-		return errors.New(errorJSON)
-	}
-
-	if caps == nil {
-		logger.Warn("No MCP capabilities found", zap.String("user", user))
-		errorJSON := createPermissionErrorJSON(user, toolName, "tool", []string{})
-		return errors.New(errorJSON)
-	}
-
-	// Check if user has access to this specific tool
-	for _, allowedTool := range caps.Tools {
-		if allowedTool == "*" || allowedTool == toolName {
-			logger.Info("Tool access granted",
-				zap.String("user", user),
-				zap.String("tool", toolName),
-			)
-			return nil
-		}
-	}
-
-	logger.Warn("Tool access denied",
-		zap.String("user", user),
-		zap.String("tool", toolName),
-		zap.Strings("allowed_tools", caps.Tools),
-	)
-	errorJSON := createPermissionErrorJSON(user, toolName, "tool", caps.Tools)
-	return errors.New(errorJSON)
-}
-
-// checkResourceAccess validates if the user has access to a specific resource
-func checkResourceAccess(ctx context.Context, resourceURI string) error {
-	caps, user, err := getTailscaleCapabilities(ctx)
-	if err != nil {
-		logger.Error("Failed to get capabilities", zap.Error(err))
-		errorJSON := createPermissionErrorJSON(user, resourceURI, "resource", []string{})
-		return errors.New(errorJSON)
-	}
-
-	if caps == nil {
-		logger.Warn("No MCP capabilities found", zap.String("user", user))
-		errorJSON := createPermissionErrorJSON(user, resourceURI, "resource", []string{})
-		return errors.New(errorJSON)
-	}
-
-	// Check if user has access to this specific resource
-	for _, allowedResource := range caps.Resources {
-		if allowedResource == "*" || allowedResource == resourceURI || strings.HasPrefix(resourceURI, allowedResource) {
-			logger.Info("Resource access granted",
-				zap.String("user", user),
-				zap.String("resource", resourceURI),
-			)
-			return nil
-		}
-	}
-
-	logger.Warn("Resource access denied",
-		zap.String("user", user),
-		zap.String("resource", resourceURI),
-		zap.Strings("allowed_resources", caps.Resources),
-	)
-	errorJSON := createPermissionErrorJSON(user, resourceURI, "resource", caps.Resources)
-	return errors.New(errorJSON)
-}
-
 // loggingMiddleware logs all incoming requests
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1102,19 +951,21 @@ func grantMiddleware(next http.Handler, tsServer *tsnet.Server) http.Handler {
 			userLoginName = who.UserProfile.LoginName
 		}
 
+		caps, err := parseMCPCapabilities(who.CapMap)
+		if err != nil {
+			logger.Error("Failed to parse MCP grant", zap.String("user", userLoginName), zap.Error(err))
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		logger.Info("Authorized user",
 			zap.String("user", userLoginName),
 			zap.String("ip", ip),
 		)
 		logger.Debug("User capabilities",
 			zap.String("user", userLoginName),
-			zap.Any("cap_map", who.CapMap),
+			zap.Any("capabilities", caps),
 		)
 
-		// Add both grants and user info to context using the correct types
-		ctx := context.WithValue(r.Context(), "ts-grants", who.CapMap)
-		ctx = context.WithValue(ctx, "ts-user", userLoginName)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r.WithContext(withCapabilities(r.Context(), caps, userLoginName)))
 	})
 }
