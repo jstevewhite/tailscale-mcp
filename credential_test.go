@@ -215,3 +215,16 @@ func TestConfigureTSNetLoadsIDTokenFromFile(t *testing.T) {
 		t.Fatalf("tsnet IDToken = %q, want startup-token", server.IDToken)
 	}
 }
+
+func TestAdvertiseTagsNotRequiredForStdio(t *testing.T) {
+	cred := TailscaleCredential{Kind: CredentialOAuth, ClientID: "cid", ClientSecret: "tskey-client-secret"}
+	if !advertiseTagsRequired(cred, nil, false) {
+		t.Fatal("oauth credential with no tags should require tags when serving on the tailnet")
+	}
+	if advertiseTagsRequired(cred, nil, true) {
+		t.Fatal("stdio mode never starts tsnet, so tags must not be required")
+	}
+	if advertiseTagsRequired(cred, []string{"tag:mcp-server"}, false) {
+		t.Fatal("tags supplied should satisfy the requirement")
+	}
+}

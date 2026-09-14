@@ -256,6 +256,12 @@ func (c TailscaleCredential) idToken() (string, error) {
 	return token, nil
 }
 
+// advertiseTagsRequired reports whether startup must fail for lack of
+// advertise tags. Stdio mode never starts tsnet, so it never needs them.
+func advertiseTagsRequired(cred TailscaleCredential, tags []string, stdio bool) bool {
+	return !stdio && cred.RequiresTSNetAdvertiseTags() && len(tags) == 0
+}
+
 func parseAdvertiseTags(raw string) ([]string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
@@ -680,7 +686,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("Invalid tsnet state configuration", zap.Error(err), zap.String("env", "TSNET_STATE"))
 	}
-	if credential.RequiresTSNetAdvertiseTags() && len(advertiseTags) == 0 {
+	if advertiseTagsRequired(credential, advertiseTags, cli.Stdio) {
 		logger.Fatal("Tailscale credential requires advertised tags for tsnet startup",
 			zap.String("env", "TS_ADVERTISE_TAGS"),
 			zap.String("example", "tag:mcp-server"),
