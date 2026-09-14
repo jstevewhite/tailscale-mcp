@@ -1,10 +1,13 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
+	"go.uber.org/zap"
 )
 
 func testCatalog() *toolmeta.Catalog {
@@ -82,5 +85,65 @@ func TestLoadProfileConfigEmptyPath(t *testing.T) {
 	}
 	if _, err := loadProfileConfig("/nonexistent/ts-mcp.yaml", testCatalog()); err == nil || !strings.Contains(err.Error(), "nonexistent") {
 		t.Fatalf("missing file should error with the path, got %v", err)
+	}
+}
+
+func TestProfileFromPath(t *testing.T) {
+	tests := []struct {
+		path string
+		name string
+		ok   bool
+	}{
+		{"/mcp", "", true},
+		{"/mcp/", "", true},
+		{"/mcp/dns", "dns", true},
+		{"/mcp/dns/", "dns", true},
+		{"/mcp/a/b", "", false},
+		{"/other", "", false},
+	}
+	for _, tt := range tests {
+		name, ok := profileFromPath(tt.path)
+		if name != tt.name || ok != tt.ok {
+			t.Errorf("profileFromPath(%q) = %q, %v; want %q, %v", tt.path, name, ok, tt.name, tt.ok)
+		}
+	}
+}
+
+func TestProfileMiddlewareResolvesAndRejects(t *testing.T) {
+	logger = zap.NewNop()
+	cfg, err := parseProfileConfig([]byte("default: ro\nprofiles:\n  ro: [\"read:*\"]\n  dns: [\"group:dns\"]\n"), testCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen toolmeta.Selectors
+	handler := profileMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = profileFromContext(r.Context())
+	}), cfg)
+
+	for path, want := range map[string]string{"/mcp": "read:*", "/mcp/dns": "group:dns"} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://h"+path, nil))
+		if rec.Code != http.StatusOK || len(seen) != 1 || seen[0] != want {
+			t.Errorf("%s: status %d, selectors %v; want 200 and [%s]", path, rec.Code, seen, want)
+		}
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://h/mcp/nope", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown profile: status %d, want 404", rec.Code)
+	}
+
+	handler = profileMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = profileFromContext(r.Context())
+	}), nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://h/mcp/dns", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("no config, named profile: status %d, want 404", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://h/mcp", nil))
+	if rec.Code != http.StatusOK || seen != nil {
+		t.Fatalf("no config, default path: status %d selectors %v; want 200 and nil", rec.Code, seen)
 	}
 }

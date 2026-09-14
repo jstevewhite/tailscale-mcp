@@ -54,6 +54,8 @@ type CLI struct {
 	LocalCLI      bool   `env:"TAILSCALE_LOCAL_CLI" help:"Enable optional read-only tools that shell out to the local tailscale CLI"`
 	LocalGrants   string `name:"local-grants" env:"TS_MCP_LOCAL_GRANTS" help:"JSON grant for stdio and loopback callers, e.g. {\"tools\":[\"*\"],\"resources\":[\"*\"]}; unset denies all local access"`
 	LocalPort     int    `name:"local-port" env:"TS_MCP_LOCAL_PORT" help:"Port for the plain-HTTP loopback listener, only started when --local-grants is set (default 8080)"`
+	Config        string `env:"TS_MCP_CONFIG" help:"YAML file defining named tool profiles selectable at /mcp/<name>"`
+	Profile       string `env:"TS_MCP_PROFILE" help:"Tool profile to serve in --stdio mode (requires --config)"`
 	Debug         bool   `short:"d"`
 	Version       bool   `short:"v"`
 	ListGroups    bool   `name:"list-groups" help:"Print every tool with its group and read-only flag, then exit"`
@@ -642,10 +644,6 @@ func originMatchesHost(origin, host string) bool {
 	return strings.EqualFold(u.Host, host)
 }
 
-func streamableHTTPHandler(streamable http.Handler, tsServer *tsnet.Server) http.Handler {
-	return loggingMiddleware(allowOriginMiddleware(grantMiddleware(streamable, tsServer)))
-}
-
 func main() {
 	var cli CLI
 	kong.Parse(&cli)
@@ -739,6 +737,18 @@ func main() {
 	readapi.RegisterResources(mcpServer, readAPIClient, checkResourceAccess)
 	curatedtools.RegisterAll(mcpServer, curatedtools.Options{Client: readAPIClient, Check: checkToolAccess, LocalCLI: cli.LocalCLI, Catalog: toolCatalog})
 
+	profileConfig, err := loadProfileConfig(cli.Config, toolCatalog)
+	if err != nil {
+		logger.Fatal("Invalid tool profile config", zap.Error(err))
+	}
+	if profileConfig != nil {
+		logger.Info("Loaded tool profiles", zap.Strings("profiles", profileConfig.Names()), zap.String("default", profileConfig.Default))
+	}
+	stdioProfile, ok := profileConfig.Resolve(cli.Profile)
+	if !ok {
+		logger.Fatal("Unknown --profile", zap.String("profile", cli.Profile), zap.Strings("known", profileConfig.Names()))
+	}
+
 	// Deprecated stdio compatibility mode.
 	if cli.Stdio {
 		logger.Warn("Stdio transport is deprecated; use Streamable HTTP instead",
@@ -747,7 +757,7 @@ func main() {
 			zap.String("recommended_endpoint", mcpEndpointPath),
 		)
 		logger.Info("Starting deprecated MCP stdio transport")
-		if err := server.ServeStdio(mcpServer, server.WithStdioContextFunc(stdioContextFunc(localGrants))); err != nil {
+		if err := server.ServeStdio(mcpServer, server.WithStdioContextFunc(stdioContextFunc(localGrants, stdioProfile))); err != nil {
 			logger.Fatal("Stdio server error", zap.Error(err))
 		}
 		os.Exit(0)
@@ -789,8 +799,10 @@ func main() {
 		server.WithEndpointPath(mcpEndpointPath),
 	)
 
+	tailnetHandler := loggingMiddleware(profileMiddleware(allowOriginMiddleware(grantMiddleware(streamable, tsServer)), profileConfig))
 	tailnetMux := http.NewServeMux()
-	tailnetMux.Handle(mcpEndpointPath, streamableHTTPHandler(streamable, tsServer))
+	tailnetMux.Handle(mcpEndpointPath, tailnetHandler)
+	tailnetMux.Handle(mcpEndpointPath+"/", tailnetHandler)
 
 	tailnetServer := newHTTPServer(tailnetMux)
 	servers := []*http.Server{tailnetServer}
@@ -804,8 +816,10 @@ func main() {
 	}()
 
 	if localGrants != nil {
+		localHandler := loggingMiddleware(profileMiddleware(allowOriginMiddleware(localGrantMiddleware(streamable, localGrants)), profileConfig))
 		localMux := http.NewServeMux()
-		localMux.Handle(mcpEndpointPath, loggingMiddleware(allowOriginMiddleware(localGrantMiddleware(streamable, localGrants))))
+		localMux.Handle(mcpEndpointPath, localHandler)
+		localMux.Handle(mcpEndpointPath+"/", localHandler)
 		localPort := resolveLocalPort(cli.LocalPort)
 		localAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(localPort))
 		localLn, err := net.Listen("tcp", localAddr)

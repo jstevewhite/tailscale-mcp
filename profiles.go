@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -90,4 +93,50 @@ func (c *ProfileConfig) Names() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func withProfile(ctx context.Context, sel toolmeta.Selectors) context.Context {
+	return context.WithValue(ctx, ctxKeyProfile, sel)
+}
+
+// profileFromContext returns the request's profile selectors; nil means the
+// profile does not restrict anything.
+func profileFromContext(ctx context.Context) toolmeta.Selectors {
+	sel, _ := ctx.Value(ctxKeyProfile).(toolmeta.Selectors)
+	return sel
+}
+
+// profileFromPath extracts the profile name from /mcp or /mcp/<name>.
+func profileFromPath(path string) (string, bool) {
+	if path == mcpEndpointPath || path == mcpEndpointPath+"/" {
+		return "", true
+	}
+	rest, ok := strings.CutPrefix(path, mcpEndpointPath+"/")
+	if !ok {
+		return "", false
+	}
+	rest = strings.TrimSuffix(rest, "/")
+	if rest == "" || strings.Contains(rest, "/") {
+		return "", false
+	}
+	return rest, true
+}
+
+// profileMiddleware resolves the URL's profile before authentication so an
+// unknown profile is a plain 404.
+func profileMiddleware(next http.Handler, cfg *ProfileConfig) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name, ok := profileFromPath(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		sel, ok := cfg.Resolve(name)
+		if !ok {
+			logger.Warn("Unknown tool profile", zap.String("profile", name), zap.Strings("known", cfg.Names()))
+			http.Error(w, "unknown tool profile", http.StatusNotFound)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(withProfile(r.Context(), sel)))
+	})
 }

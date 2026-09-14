@@ -21,6 +21,7 @@ type ctxKey int
 const (
 	ctxKeyCapabilities ctxKey = iota
 	ctxKeyUser
+	ctxKeyProfile
 )
 
 // withCapabilities returns a context carrying the caller's parsed MCP
@@ -106,10 +107,14 @@ func grantToolFilter(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
 	if caps == nil {
 		return nil
 	}
+	profile := profileFromContext(ctx)
 	allowed := make([]mcp.Tool, 0, len(tools))
 	for _, tool := range tools {
 		m := toolMeta(tool.Name)
 		m.ReadOnly = isReadOnlyTool(tool) // annotations are authoritative
+		if profile != nil && !profile.Allows(m) {
+			continue
+		}
 		if caps.AllowsTool(m) {
 			allowed = append(allowed, tool)
 		}

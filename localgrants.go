@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jaxxstorm/tailscale-mcp/internal/toolmeta"
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 )
@@ -52,8 +53,8 @@ func localGrantMiddleware(next http.Handler, caps *MCPCapability) http.Handler {
 }
 
 // stdioContextFunc attaches the local grant to every stdio request.
-func stdioContextFunc(caps *MCPCapability) server.StdioContextFunc {
+func stdioContextFunc(caps *MCPCapability, profile toolmeta.Selectors) server.StdioContextFunc {
 	return func(ctx context.Context) context.Context {
-		return withCapabilities(ctx, caps, localGrantUser)
+		return withProfile(withCapabilities(ctx, caps, localGrantUser), profile)
 	}
 }

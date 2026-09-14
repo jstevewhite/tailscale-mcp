@@ -73,11 +73,11 @@ func TestLocalGrantMiddlewareDeniesWhenUnset(t *testing.T) {
 
 func TestStdioContextFuncInjectsLocalGrants(t *testing.T) {
 	logger = zap.NewNop()
-	ctx := stdioContextFunc(&MCPCapability{Resources: []string{"*"}})(context.Background())
+	ctx := stdioContextFunc(&MCPCapability{Resources: []string{"*"}}, nil)(context.Background())
 	if err := checkResourceAccess(ctx, "tailscale://devices"); err != nil {
 		t.Fatalf("expected access via local grant, got %v", err)
 	}
-	ctx = stdioContextFunc(nil)(context.Background())
+	ctx = stdioContextFunc(nil, nil)(context.Background())
 	if err := checkResourceAccess(ctx, "tailscale://devices"); err == nil {
 		t.Fatal("expected denial without local grant")
 	}

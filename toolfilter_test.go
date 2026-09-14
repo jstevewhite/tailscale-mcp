@@ -118,3 +118,19 @@ func TestGroupSelectorsWorkInGrants(t *testing.T) {
 		t.Fatal("devices tool should be denied under group:dns:read")
 	}
 }
+
+func TestToolsListIsIntersectionOfProfileAndGrant(t *testing.T) {
+	logger = zap.NewNop()
+	grant := &MCPCapability{Tools: []string{"*"}}
+
+	ctx := withProfile(withCapabilities(context.Background(), grant, "alice"), toolmeta.Selectors{"group:dns:read"})
+	if got := listTools(t, ctx); len(got) != 1 || got[0] != "reader" {
+		t.Fatalf("profile group:dns:read with grant * = %v, want [reader]", got)
+	}
+
+	narrow := &MCPCapability{Tools: []string{"named"}}
+	ctx = withProfile(withCapabilities(context.Background(), narrow, "alice"), toolmeta.Selectors{"*"})
+	if got := listTools(t, ctx); len(got) != 1 || got[0] != "named" {
+		t.Fatalf("profile * with grant named = %v, want [named]", got)
+	}
+}
