@@ -44,6 +44,7 @@ Add `--tls` (or `TS_TLS=1`) to serve `https://<hostname>.yourtailnet.ts.net/mcp`
 ## Documentation
 
 * [Usage Guide](docs/usage.md): installation, configuration, credentials, grants, client setup, tools, resources, coverage, and troubleshooting
+* [Profiles Configuration Guide](docs/profiles.md): per-client tool sets, selectors, groups with every tool listed, and troubleshooting
 * [Coverage Report](coverage/mcp-coverage.md): generated Tailscale OpenAPI to MCP coverage mapping
 * [Parity Backlog](coverage/parity-backlog.md): generated list of unmapped API operations
 

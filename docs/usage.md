@@ -259,6 +259,8 @@ Groups: `devices`, `dns`, `policy`, `keys`, `users`, `invites`, `webhooks`, `ser
 
 The config is validated at startup: unknown groups, unknown tool names, empty profiles, and a `default` that names no profile all stop the server. It is read once; restart to pick up changes.
 
+See the [Profiles Configuration Guide](profiles.md) for the full tool list per group, recipes, and troubleshooting.
+
 ### Local Access
 
 Requests over stdio or the loopback listener have no Tailscale identity, so they are denied unless `--local-grants` (or `TS_MCP_LOCAL_GRANTS`) is set. The value is one entry of the grant capability, so it can be copied from the ACL:
