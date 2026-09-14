@@ -1,0 +1,3 @@
+{"logtail":{"client_time":"2026-09-14T17:56:36.037506117Z"},"v":1,"text":"netcheck: report: udp=true v6=true mapvarydest=false portmap= v4a=69.247.206.170:38779 v6a=[2601:300:4000:1d0a:ebda:6c28:211a:c922]:46749 derp=12 derpdist=9v4:36ms,12v4:20ms,12v6:45ms,13v4:23ms,13v6:23ms"}
+{"logtail":{"client_time":"2026-09-14T17:56:36.098760977Z"},"v":2,"text":"wg: [kVkfM] - Receiving keepalive packet"}
+{"logtail":{"client_time":"2026-09-14T17:56:36.326212917Z"},"v":1,"text":"Accept: TCP{100.102.9.10:34638 > 100.108.151.101:443} 52 tcp non-syn\n"}
