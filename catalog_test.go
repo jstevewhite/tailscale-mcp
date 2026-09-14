@@ -49,3 +49,14 @@ func TestEveryRegisteredToolHasAGroup(t *testing.T) {
 		t.Error("GET tool not recorded as read-only")
 	}
 }
+
+func TestFormatToolTableListsGroupReadOnlyAndName(t *testing.T) {
+	out := formatToolTable([]toolmeta.Meta{
+		{Name: "list_all_devices", Group: "devices", ReadOnly: true},
+		{Name: "tailscale_delete_device", Group: "devices", ReadOnly: false},
+	})
+	want := "GROUP     READ  TOOL\ndevices   yes   list_all_devices\ndevices   no    tailscale_delete_device\n"
+	if out != want {
+		t.Fatalf("table =\n%s\nwant\n%s", out, want)
+	}
+}

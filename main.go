@@ -42,8 +42,8 @@ import (
 )
 
 type CLI struct {
-	Tailnet       string `env:"TAILSCALE_TAILNET" required:""`
-	Credential    string `env:"TAILSCALE_OAUTH_TOKEN" required:"" help:"OAuth, federated, or bearer credential for Tailscale startup and API access"`
+	Tailnet       string `env:"TAILSCALE_TAILNET" help:"Tailnet name, for example example.com or example.ts.net"`
+	Credential    string `env:"TAILSCALE_OAUTH_TOKEN" help:"OAuth, federated, or bearer credential for Tailscale startup and API access"`
 	OAuthClientID string `name:"oauth-client-id" env:"TAILSCALE_OAUTH_CLIENT_ID" help:"OAuth client ID to use when TAILSCALE_OAUTH_TOKEN is a raw tskey-client secret"`
 	Hostname      string `env:"TS_HOSTNAME" default:"ts-mcp"`
 	Port          int    `env:"TS_PORT" help:"Listen port; defaults to 8080, or 443 with --tls"`
@@ -56,6 +56,7 @@ type CLI struct {
 	LocalPort     int    `name:"local-port" env:"TS_MCP_LOCAL_PORT" help:"Port for the plain-HTTP loopback listener, only started when --local-grants is set (default 8080)"`
 	Debug         bool   `short:"d"`
 	Version       bool   `short:"v"`
+	ListGroups    bool   `name:"list-groups" help:"Print every tool with its group and read-only flag, then exit"`
 	Stdio         bool   `help:"Use deprecated stdio mode instead of Streamable HTTP" default:"false"`
 }
 
@@ -656,6 +657,18 @@ func main() {
 	if cli.Version {
 		fmt.Println("ts-mcp", buildVersion)
 		return
+	}
+
+	if cli.ListGroups {
+		srv := newMCPServer()
+		registerCoreMCP(srv, nil)
+		readapi.RegisterTools(srv, readapi.Client{}, checkToolAccess, toolCatalog)
+		curatedtools.RegisterAll(srv, curatedtools.Options{Client: readapi.Client{}, Check: checkToolAccess, LocalCLI: true, Catalog: toolCatalog})
+		fmt.Print(formatToolTable(toolCatalog.All()))
+		return
+	}
+	if strings.TrimSpace(cli.Tailnet) == "" {
+		logger.Fatal("TAILSCALE_TAILNET is required")
 	}
 
 	cli.Port = resolveListenPort(cli.Port, cli.TLS)
