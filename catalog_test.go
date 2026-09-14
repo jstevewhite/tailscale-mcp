@@ -21,7 +21,7 @@ func registerEverything(t *testing.T) {
 func TestEveryRegisteredToolHasAGroup(t *testing.T) {
 	registerEverything(t)
 	all := toolCatalog.All()
-	if len(all) < 120 {
+	if len(all) < 105 {
 		t.Fatalf("catalog has %d tools, expected the full set", len(all))
 	}
 	for _, m := range all {
@@ -35,7 +35,7 @@ func TestEveryRegisteredToolHasAGroup(t *testing.T) {
 		"tailscale_ping":                   "local",
 		"tailscale_get_acl":                "policy",
 		"tailscale_list_network_flow_logs": "logs",
-		"tailscale_create_key_curated":     "keys",
+		"tailscale_create_key":             "keys",
 	} {
 		m, ok := toolCatalog.Get(name)
 		if !ok || m.Group != want {

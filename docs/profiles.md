@@ -4,7 +4,7 @@ Profiles let one running server advertise a different set of tools to each clien
 
 ## Why profiles
 
-The server registers 122 tools, or 126 with local CLI tools enabled. Every MCP client sends every tool schema to the model on each session. That costs context before the first question and makes tool choice worse. Profiles let you publish only what a given client needs. Clients with a built-in tool picker can narrow further; clients without one just get a different URL.
+The server registers 110 tools, or 114 with local CLI tools enabled. Every MCP client sends every tool schema to the model on each session. That costs context before the first question and makes tool choice worse. Profiles let you publish only what a given client needs. Clients with a built-in tool picker can narrow further; clients without one just get a different URL.
 
 ## Quick start
 
@@ -80,8 +80,8 @@ A profile is a view, not a permission. Each request is authorized by the caller'
 
 | Profile lists | Grant allows | Client sees |
 |---|---|---|
-| `group:dns` (13 tools) | `*` | 13 tools |
-| `group:dns` | `read:*` | the 6 read-only dns tools |
+| `group:dns` (11 tools) | `*` | 11 tools |
+| `group:dns` | `read:*` | the 5 read-only dns tools |
 | `*` | `list_all_devices` | 1 tool |
 | `read:*` | `group:devices` | the read-only devices tools |
 
@@ -147,18 +147,16 @@ Groups are derived from the Tailscale API path each tool calls, so a tool added 
 | `tailscale_set_devices_authorized` | no |
 | `tailscale_update_device_key` | no |
 
-### `dns` (13 tools, 6 read-only)
+### `dns` (11 tools, 5 read-only)
 
 | Tool | Read-only |
 |---|---|
 | `tailscale_get_dns_configuration` | yes |
-| `tailscale_get_dns_configuration_curated` | yes |
 | `tailscale_get_dns_preferences` | yes |
 | `tailscale_get_split_dns` | yes |
 | `tailscale_list_dns_nameservers` | yes |
 | `tailscale_list_dns_search_paths` | yes |
 | `tailscale_set_dns_configuration` | no |
-| `tailscale_set_dns_configuration_curated` | no |
 | `tailscale_set_dns_nameservers` | no |
 | `tailscale_set_dns_preferences` | no |
 | `tailscale_set_dns_search_paths` | no |
@@ -177,19 +175,17 @@ Groups are derived from the Tailscale API path each tool calls, so a tool added 
 | `tailscale_validate_acl` | yes |
 | `tailscale_validate_and_test_policy_file` | yes |
 
-### `keys` (7 tools, 3 read-only)
+### `keys` (5 tools, 2 read-only)
 
 | Tool | Read-only |
 |---|---|
 | `tailscale_create_key` | no |
-| `tailscale_create_key_curated` | no |
 | `tailscale_delete_key` | no |
 | `tailscale_get_key` | yes |
-| `tailscale_list_keys_curated` | yes |
 | `tailscale_list_tailnet_keys` | yes |
 | `tailscale_set_key` | no |
 
-### `users` (8 tools, 3 read-only)
+### `users` (7 tools, 2 read-only)
 
 | Tool | Read-only |
 |---|---|
@@ -197,44 +193,39 @@ Groups are derived from the Tailscale API path each tool calls, so a tool added 
 | `tailscale_delete_user` | no |
 | `tailscale_get_user` | yes |
 | `tailscale_list_users` | yes |
-| `tailscale_list_users_curated` | yes |
 | `tailscale_restore_user` | no |
 | `tailscale_suspend_user` | no |
 | `tailscale_update_user_role` | no |
 
-### `invites` (13 tools, 5 read-only)
+### `invites` (11 tools, 4 read-only)
 
 | Tool | Read-only |
 |---|---|
 | `tailscale_accept_device_invite` | no |
 | `tailscale_create_device_invites` | no |
 | `tailscale_create_user_invites` | no |
-| `tailscale_create_user_invites_curated` | no |
 | `tailscale_delete_device_invite` | no |
 | `tailscale_delete_user_invite` | no |
 | `tailscale_get_device_invite` | yes |
 | `tailscale_get_user_invite` | yes |
 | `tailscale_list_device_invites` | yes |
 | `tailscale_list_user_invites` | yes |
-| `tailscale_list_user_invites_curated` | yes |
 | `tailscale_resend_device_invite` | no |
 | `tailscale_resend_user_invite` | no |
 
-### `webhooks` (9 tools, 3 read-only)
+### `webhooks` (7 tools, 2 read-only)
 
 | Tool | Read-only |
 |---|---|
 | `tailscale_create_webhook` | no |
-| `tailscale_create_webhook_curated` | no |
 | `tailscale_delete_webhook` | no |
 | `tailscale_get_webhook` | yes |
 | `tailscale_list_webhooks` | yes |
-| `tailscale_list_webhooks_curated` | yes |
 | `tailscale_rotate_webhook_secret` | no |
 | `tailscale_test_webhook` | no |
 | `tailscale_update_webhook` | no |
 
-### `services` (8 tools, 5 read-only)
+### `services` (7 tools, 4 read-only)
 
 | Tool | Read-only |
 |---|---|
@@ -243,11 +234,10 @@ Groups are derived from the Tailscale API path each tool calls, so a tool added 
 | `tailscale_get_service_device_approval` | yes |
 | `tailscale_list_service_hosts` | yes |
 | `tailscale_list_services` | yes |
-| `tailscale_list_services_curated` | yes |
 | `tailscale_update_service` | no |
 | `tailscale_update_service_device_approval` | no |
 
-### `logs` (9 tools, 6 read-only)
+### `logs` (8 tools, 5 read-only)
 
 | Tool | Read-only |
 |---|---|
@@ -256,12 +246,11 @@ Groups are derived from the Tailscale API path each tool calls, so a tool added 
 | `tailscale_get_log_streaming_configuration` | yes |
 | `tailscale_get_log_streaming_status` | yes |
 | `tailscale_list_configuration_audit_logs` | yes |
-| `tailscale_list_configuration_audit_logs_curated` | yes |
 | `tailscale_list_network_flow_logs` | yes |
 | `tailscale_set_log_streaming_configuration` | no |
 | `tailscale_validate_aws_external_id` | yes |
 
-### `posture` (6 tools, 3 read-only)
+### `posture` (5 tools, 2 read-only)
 
 | Tool | Read-only |
 |---|---|
@@ -269,7 +258,6 @@ Groups are derived from the Tailscale API path each tool calls, so a tool added 
 | `tailscale_delete_posture_integration` | no |
 | `tailscale_get_posture_integration` | yes |
 | `tailscale_get_posture_integrations` | yes |
-| `tailscale_get_posture_integrations_curated` | yes |
 | `tailscale_update_posture_integration` | no |
 
 ### `oauth` (5 tools, 2 read-only)

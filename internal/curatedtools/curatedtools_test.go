@@ -17,13 +17,18 @@ func TestRegisterAllRegistersCuratedToolsWithoutLocalCLIByDefault(t *testing.T) 
 	srv := server.NewMCPServer("test", "0.0.1")
 	RegisterAll(srv, Options{Client: readapi.Client{Tailnet: "example.com"}, Check: allow})
 
-	for _, name := range []string{"tailscale_status", "tailscale_get_acl", "tailscale_device_authorize", "tailscale_get_dns_configuration_curated"} {
+	for _, name := range []string{"tailscale_status", "tailscale_get_acl", "tailscale_device_authorize"} {
 		if srv.GetTool(name) == nil {
 			t.Fatalf("expected tool %q to be registered", name)
 		}
 	}
 	if srv.GetTool("tailscale_local_status") != nil {
 		t.Fatal("local CLI tool registered without opt-in")
+	}
+	for _, name := range []string{"tailscale_get_dns_configuration_curated", "tailscale_create_key_curated"} {
+		if srv.GetTool(name) != nil {
+			t.Fatalf("%q duplicates a generated tool and must not be registered", name)
+		}
 	}
 }
 

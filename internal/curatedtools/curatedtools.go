@@ -55,7 +55,6 @@ func curatedTools(opts Options) []toolDef {
 	tools = append(tools, statusTools(opts)...)
 	tools = append(tools, aclTools(opts)...)
 	tools = append(tools, deviceTools(opts)...)
-	tools = append(tools, domainWrapperTools(opts)...)
 	return tools
 }
 
@@ -444,58 +443,4 @@ func validPingTarget(target string) bool {
 		return false
 	}
 	return pingTargetRE.MatchString(target)
-}
-
-func domainWrapperTools(opts Options) []toolDef {
-	defs := []struct {
-		name        string
-		desc        string
-		operationID string
-	}{
-		{"tailscale_get_dns_configuration_curated", "Get full DNS configuration.", "getDnsConfiguration"},
-		{"tailscale_list_user_invites_curated", "List open user invites.", "listUserInvites"},
-		{"tailscale_list_keys_curated", "List active keys visible to the credential.", "listTailnetKeys"},
-		{"tailscale_list_configuration_audit_logs_curated", "List configuration audit logs.", "listConfigurationAuditLogs"},
-		{"tailscale_list_services_curated", "List tailnet services.", "listServices"},
-		{"tailscale_get_tailnet_settings_curated", "Get tailnet settings.", "getTailnetSettings"},
-		{"tailscale_list_users_curated", "List users.", "listUsers"},
-		{"tailscale_list_webhooks_curated", "List webhooks.", "listWebhooks"},
-		{"tailscale_get_posture_integrations_curated", "List posture integrations.", "getPostureIntegrations"},
-	}
-	byOperation := map[string]readapi.Endpoint{}
-	for _, endpoint := range readapi.ToolEndpoints() {
-		byOperation[endpoint.OperationID] = endpoint
-	}
-	tools := []toolDef{}
-	for _, def := range defs {
-		endpoint, ok := byOperation[def.operationID]
-		if !ok {
-			continue
-		}
-		hints := endpoint.ToolHints()
-		tools = append(tools, toolDef{Name: def.name, Description: def.desc, Endpoint: endpoint, Options: endpointOptions(endpoint), ReadOnly: hints.ReadOnly, Destructive: hints.Destructive, Idempotent: hints.Idempotent, Confirm: endpoint.Confirm})
-	}
-	tools = append(tools,
-		toolDef{Name: "tailscale_set_dns_configuration_curated", Description: "Replace DNS configuration with a typed body.", Endpoint: readapi.Endpoint{Method: "POST", Path: "/tailnet/{tailnet}/dns/configuration", Body: true}, Idempotent: true, Confirm: "setDnsConfiguration", Options: []mcp.ToolOption{mcp.WithObject("body", mcp.Required(), mcp.Description("DNS configuration body"))}},
-		toolDef{Name: "tailscale_create_user_invites_curated", Description: "Create user invites.", Endpoint: readapi.Endpoint{Method: "POST", Path: "/tailnet/{tailnet}/user-invites", Body: true}, Confirm: "createUserInvites", Options: []mcp.ToolOption{mcp.WithObject("body", mcp.Required())}},
-		toolDef{Name: "tailscale_create_key_curated", Description: "Create an auth key or trust credential.", Endpoint: readapi.Endpoint{Method: "POST", Path: "/tailnet/{tailnet}/keys", Body: true}, Confirm: "createKey", Options: []mcp.ToolOption{mcp.WithObject("body", mcp.Required())}},
-		toolDef{Name: "tailscale_create_webhook_curated", Description: "Create a webhook.", Endpoint: readapi.Endpoint{Method: "POST", Path: "/tailnet/{tailnet}/webhooks", Body: true}, Confirm: "createWebhook", Options: []mcp.ToolOption{mcp.WithObject("body", mcp.Required())}},
-	)
-	_ = opts
-	return tools
-}
-
-func endpointOptions(endpoint readapi.Endpoint) []mcp.ToolOption {
-	options := []mcp.ToolOption{}
-	for _, param := range endpoint.Parameters {
-		props := []mcp.PropertyOption{mcp.Description(param.Description)}
-		if param.Required {
-			props = append(props, mcp.Required())
-		}
-		options = append(options, mcp.WithString(param.Name, props...))
-	}
-	if endpoint.Body {
-		options = append(options, mcp.WithObject("body", mcp.Description("JSON request body")))
-	}
-	return options
 }

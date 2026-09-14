@@ -203,7 +203,7 @@ Tool grants:
 * `group:<name>` and `group:<name>:read`: Allow a whole group, or its read-only tools. See Tool Profiles for the group list
 * `*`: Allow all tools
 
-The server advertises only the tools a caller's grant allows. With `read:*` an agent sees about fifty read-only tools instead of the full set of over a hundred and twenty, which keeps its context small and stops it from planning around tools it cannot call. A tool outside the grant is neither listed nor callable; calling it by name returns "tool not found". Resources are always listed, but reading one still requires a matching resource grant.
+The server advertises only the tools a caller's grant allows. With `read:*` an agent sees about forty-five read-only tools instead of the full set of over a hundred, which keeps its context small and stops it from planning around tools it cannot call. A tool outside the grant is neither listed nor callable; calling it by name returns "tool not found". Resources are always listed, but reading one still requires a matching resource grant.
 
 A sensible starting grant for an agent:
 
@@ -365,8 +365,6 @@ Status and ACL tools:
 | `tailscale_update_acl` | Update HuJSON ACL policy with ETag and `confirm: "setPolicyFile"` | `tailscale_update_acl` |
 
 Device workflow tools include `tailscale_list_devices`, `tailscale_get_device`, `tailscale_device_routes`, `tailscale_device_posture_attributes`, `tailscale_device_authorize`, `tailscale_device_deauthorize`, `tailscale_device_delete`, `tailscale_device_rename`, `tailscale_device_expire_key`, `tailscale_device_set_routes`, `tailscale_device_set_tags`, `tailscale_device_set_ip`, `tailscale_device_update_key`, `tailscale_device_set_posture_attribute`, `tailscale_device_delete_posture_attribute`, `tailscale_device_batch_update_posture_attributes`, and `tailscale_set_devices_authorized`.
-
-Additional curated domain wrappers use `_curated` suffixes where a generated tool already owns the canonical OpenAPI operation name, for example `tailscale_get_dns_configuration_curated`, `tailscale_list_users_curated`, `tailscale_list_webhooks_curated`, and `tailscale_create_key_curated`.
 
 Mutating curated tools require both the curated tool grant and an explicit `confirm` argument. Single-operation wrappers use the underlying OpenAPI operation ID as the confirmation token. Bulk/composed mutating workflows use the curated tool name as the confirmation token.
 
