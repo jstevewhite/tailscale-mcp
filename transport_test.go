@@ -336,3 +336,12 @@ func TestEndpointURLUsesSchemeAndOmitsDefaultPort(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveLocalPortDefaultsIndependentlyOfTailnetPort(t *testing.T) {
+	if got := resolveLocalPort(0); got != 8080 {
+		t.Fatalf("resolveLocalPort(0) = %d, want 8080", got)
+	}
+	if got := resolveLocalPort(9090); got != 9090 {
+		t.Fatalf("resolveLocalPort(9090) = %d, want 9090", got)
+	}
+}

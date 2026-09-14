@@ -53,6 +53,7 @@ Command line options:
 * `--state`: tsnet state location. Same as `TSNET_STATE`
 * `--tls`: Serve HTTPS on the tailnet using a Tailscale-issued certificate. Same as `TS_TLS`
 * `--local-grants`: JSON grant applied to stdio and loopback callers. Same as `TS_MCP_LOCAL_GRANTS`
+* `--local-port`: Port for the plain-HTTP loopback listener, default 8080. Same as `TS_MCP_LOCAL_PORT`
 * `--stdio`: Use deprecated stdio compatibility mode instead of Streamable HTTP
 
 ## tsnet State
@@ -219,7 +220,7 @@ Requests over stdio or the loopback listener have no Tailscale identity, so they
 export TS_MCP_LOCAL_GRANTS='{"tools":["list_all_devices","get_device_info"],"resources":["tailscale://devices"]}'
 ```
 
-Anything that can reach `127.0.0.1:<port>` on the host, or launch the binary with `--stdio`, receives this grant. Tailnet requests never use it.
+The loopback listener is only started when local grants are set. It always speaks plain HTTP on `--local-port` (default 8080), independent of the tailnet port, so `--tls` on 443 does not require binding a privileged port on the host. Anything that can reach it, or launch the binary with `--stdio`, receives this grant. Tailnet requests never use it.
 
 ## Running The Server
 
@@ -232,7 +233,7 @@ Streamable HTTP is the default transport:
 The server exposes MCP at:
 
 * `http://<hostname>.yourtailnet.ts.net:8080/mcp` for clients on the tailnet
-* `http://127.0.0.1:8080/mcp` for local clients, when `--local-grants` is set
+* `http://127.0.0.1:8080/mcp` for local clients, only when `--local-grants` is set (port via `--local-port`)
 
 With `--tls` the tailnet listener serves HTTPS on port 443 using a certificate issued through Tailscale, so the URL becomes `https://<hostname>.yourtailnet.ts.net/mcp`. This requires HTTPS certificates to be enabled in the tailnet's DNS settings. The startup log prints the resolved URL.
 

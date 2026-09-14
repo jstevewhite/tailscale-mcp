@@ -20,6 +20,15 @@ func resolveListenPort(port int, tls bool) int {
 	return 8080
 }
 
+// resolveLocalPort picks the loopback listener port. It is independent of
+// the tailnet port so --tls on 443 does not require root for 127.0.0.1.
+func resolveLocalPort(port int) int {
+	if port > 0 {
+		return port
+	}
+	return 8080
+}
+
 // endpointURL renders the MCP endpoint for logs, omitting the port when it
 // is the scheme default.
 func endpointURL(host string, port int, tls bool) string {

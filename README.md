@@ -33,7 +33,7 @@ export TS_ADVERTISE_TAGS="tag:mcp-server"
 The server exposes MCP at:
 
 * `http://<hostname>.yourtailnet.ts.net:8080/mcp` for any client on the tailnet whose user has a grant
-* `http://127.0.0.1:8080/mcp` for local clients, only when `--local-grants` is set
+* `http://127.0.0.1:8080/mcp` for local clients, only when `--local-grants` is set (port via `--local-port`)
 
 Add `--tls` (or `TS_TLS=1`) to serve `https://<hostname>.yourtailnet.ts.net/mcp` on port 443 with a certificate issued through Tailscale.
 

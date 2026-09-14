@@ -52,6 +52,7 @@ type CLI struct {
 	ForceLogin    bool   `env:"TSNET_FORCE_LOGIN" help:"Force tsnet to use the supplied startup credential even when local state exists"`
 	LocalCLI      bool   `env:"TAILSCALE_LOCAL_CLI" help:"Enable optional read-only tools that shell out to the local tailscale CLI"`
 	LocalGrants   string `name:"local-grants" env:"TS_MCP_LOCAL_GRANTS" help:"JSON grant for stdio and loopback callers, e.g. {\"tools\":[\"*\"],\"resources\":[\"*\"]}; unset denies all local access"`
+	LocalPort     int    `name:"local-port" env:"TS_MCP_LOCAL_PORT" help:"Port for the plain-HTTP loopback listener, only started when --local-grants is set (default 8080)"`
 	Debug         bool   `short:"d"`
 	Version       bool   `short:"v"`
 	Stdio         bool   `help:"Use deprecated stdio mode instead of Streamable HTTP" default:"false"`
@@ -777,32 +778,36 @@ func main() {
 	tailnetMux := http.NewServeMux()
 	tailnetMux.Handle(mcpEndpointPath, streamableHTTPHandler(streamable, tsServer))
 
-	localMux := http.NewServeMux()
-	localMux.Handle(mcpEndpointPath, loggingMiddleware(allowOriginMiddleware(localGrantMiddleware(streamable, localGrants))))
-
-	localAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(cli.Port))
-	localLn, err := net.Listen("tcp", localAddr)
-	if err != nil {
-		logger.Fatal("Local listen error", zap.String("address", localAddr), zap.Error(err))
-	}
-	localServer := newHTTPServer(localMux)
 	tailnetServer := newHTTPServer(tailnetMux)
+	servers := []*http.Server{tailnetServer}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	errCh := make(chan error, 2)
 
 	go func() {
-		logger.Info("Serving MCP locally",
-			zap.String("transport", streamableHTTPTransportName),
-			zap.String("url", endpointURL("127.0.0.1", cli.Port, false)),
-			zap.Bool("local_grants", localGrants != nil),
-		)
-		errCh <- serveNamed("local", localServer, localLn)
-	}()
-	go func() {
 		errCh <- serveNamed("tailscale", tailnetServer, tsLn)
 	}()
+
+	if localGrants != nil {
+		localMux := http.NewServeMux()
+		localMux.Handle(mcpEndpointPath, loggingMiddleware(allowOriginMiddleware(localGrantMiddleware(streamable, localGrants))))
+		localPort := resolveLocalPort(cli.LocalPort)
+		localAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(localPort))
+		localLn, err := net.Listen("tcp", localAddr)
+		if err != nil {
+			logger.Fatal("Local listen error", zap.String("address", localAddr), zap.Error(err))
+		}
+		localServer := newHTTPServer(localMux)
+		servers = append(servers, localServer)
+		logger.Info("Serving MCP locally",
+			zap.String("transport", streamableHTTPTransportName),
+			zap.String("url", endpointURL("127.0.0.1", localPort, false)),
+		)
+		go func() {
+			errCh <- serveNamed("local", localServer, localLn)
+		}()
+	}
 
 	select {
 	case err := <-errCh:
@@ -813,8 +818,9 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	_ = localServer.Shutdown(shutdownCtx)
-	_ = tailnetServer.Shutdown(shutdownCtx)
+	for _, srv := range servers {
+		_ = srv.Shutdown(shutdownCtx)
+	}
 	if err := tsServer.Close(); err != nil {
 		logger.Warn("tsnet close error", zap.Error(err))
 	}
