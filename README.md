@@ -4,12 +4,12 @@ An MCP (Model Context Protocol) server for Tailscale, enabling detailed queries 
 
 ## Features
 
-* **Streamable HTTP Transport**: Serves MCP on `/mcp` via Tailscale and localhost
+* **Streamable HTTP Transport**: Serves MCP on `/mcp` via Tailscale, optionally over HTTPS with `--tls`, and on localhost
 * **Comprehensive Tailscale Integration**: Full mapped coverage of the vendored Tailscale OpenAPI snapshot
 * **OAuth Grants Authorization**: Fine-grained MCP access control with `jaxxstorm.com/cap/mcp`
 * **Single Credential Startup**: Uses `TAILSCALE_OAUTH_TOKEN` for Admin API access and tsnet startup
 * **Configurable tsnet State**: Stores tsnet state on the filesystem by default, with optional Kubernetes Secret or AWS SSM state stores
-* **Legacy stdio Compatibility**: Deprecated stdio mode remains available for older local clients
+* **Local Access Opt-In**: `--local-grants` authorizes stdio and loopback clients that have no Tailscale identity
 
 ## Quick Start
 
@@ -32,8 +32,10 @@ export TS_ADVERTISE_TAGS="tag:mcp-server"
 
 The server exposes MCP at:
 
-* `http://<hostname>.yourtailnet.ts.net:8080/mcp`
-* `http://127.0.0.1:8080/mcp`
+* `http://<hostname>.yourtailnet.ts.net:8080/mcp` for any client on the tailnet whose user has a grant
+* `http://127.0.0.1:8080/mcp` for local clients, only when `--local-grants` is set
+
+Add `--tls` (or `TS_TLS=1`) to serve `https://<hostname>.yourtailnet.ts.net/mcp` on port 443 with a certificate issued through Tailscale.
 
 ## Documentation
 

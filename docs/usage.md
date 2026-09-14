@@ -36,8 +36,10 @@ Optional environment variables:
 
 ```bash
 export TS_HOSTNAME="ts-mcp"
-export TS_PORT="8080"
+export TS_PORT="8080"            # defaults to 8080, or 443 with TS_TLS
+export TS_TLS="1"                # serve HTTPS on the tailnet
 export TSNET_STATE="file://"
+export TS_MCP_LOCAL_GRANTS='{"tools":["*"],"resources":["*"]}'   # allow stdio and loopback clients
 ```
 
 `TS_ADVERTISE_TAGS` is required when `TAILSCALE_OAUTH_TOKEN` is an OAuth client secret or federated credential because tsnet mints a tagged node auth key during startup. The OAuth client or federated credential must be allowed to create auth keys for the advertised tag.
@@ -49,6 +51,8 @@ Command line options:
 * `--oauth-client-id`: OAuth client ID to use when `TAILSCALE_OAUTH_TOKEN` is a raw `tskey-client-*` secret
 * `--advertise-tags`: Comma-separated Tailscale tags to advertise when minting tsnet auth keys from OAuth or federated credentials
 * `--state`: tsnet state location. Same as `TSNET_STATE`
+* `--tls`: Serve HTTPS on the tailnet using a Tailscale-issued certificate. Same as `TS_TLS`
+* `--local-grants`: JSON grant applied to stdio and loopback callers. Same as `TS_MCP_LOCAL_GRANTS`
 * `--stdio`: Use deprecated stdio compatibility mode instead of Streamable HTTP
 
 ## tsnet State
@@ -107,6 +111,12 @@ When using AWS SSM state, the workload must have AWS credentials that can read a
 export TSNET_STATE="aws://us-east-1/123456789012/parameter/tailscale/mcp?kmsKey=alias/tailscale-state"
 ```
 
+When running the container image, the default state directory is relative to the working directory, which is `/` and read-only for the non-root user. Mount a volume and point `TSNET_STATE` at it:
+
+```bash
+docker run -v tailscale-mcp-state:/state -e TSNET_STATE=file:///state ...
+```
+
 ## Credentials
 
 Create a Tailscale OAuth client or federated credential that can read tailnet settings at startup and perform every Admin API operation you expose through MCP.
@@ -131,6 +141,12 @@ Federated JSON form:
 ```bash
 export TAILSCALE_OAUTH_TOKEN='{"type":"federated","clientId":"k123...","idToken":"<oidc-id-token>"}'
 export TS_ADVERTISE_TAGS="tag:mcp-server"
+```
+
+OIDC ID tokens usually expire within an hour. For a long-running server, point `idTokenFile` at a file that an external refresher keeps current. The file is re-read on every Admin API token exchange:
+
+```bash
+export TAILSCALE_OAUTH_TOKEN='{"type":"federated","clientId":"k123...","idTokenFile":"/var/run/secrets/tailscale/id-token"}'
 ```
 
 A raw bearer/auth-key-like token is also accepted for deployments where the same token can authenticate Admin API requests and tsnet startup:
@@ -191,6 +207,20 @@ Resource grants:
 * `tailscale://dns/*`, `tailscale://keys`, `tailscale://webhooks`, `tailscale://services`, `tailscale://oauth-apps`, and similar read API resources
 * `*`: Allow all resources
 
+Resource grants match exactly, or hierarchically when written with a trailing `/*`. `tailscale://device/*` covers `tailscale://device/<id>/routes` and `tailscale://device/<id>/attributes`; it does not cover `tailscale://devices`. When a user matches several grant rules, the tool and resource lists from all of them are combined.
+
+The `confirm` argument on mutating tools is a speed bump, not a safeguard: the required value is printed in the tool description, so an agent will supply it. The grant is the only enforcement. Prefer explicit tool lists over `"tools": ["*"]` for agents, because a wildcard grant includes `tailscale_create_key`, `tailscale_set_policy_file`, and `tailscale_delete_user`.
+
+### Local Access
+
+Requests over stdio or the loopback listener have no Tailscale identity, so they are denied unless `--local-grants` (or `TS_MCP_LOCAL_GRANTS`) is set. The value is one entry of the grant capability, so it can be copied from the ACL:
+
+```bash
+export TS_MCP_LOCAL_GRANTS='{"tools":["list_all_devices","get_device_info"],"resources":["tailscale://devices"]}'
+```
+
+Anything that can reach `127.0.0.1:<port>` on the host, or launch the binary with `--stdio`, receives this grant. Tailnet requests never use it.
+
 ## Running The Server
 
 Streamable HTTP is the default transport:
@@ -201,13 +231,19 @@ Streamable HTTP is the default transport:
 
 The server exposes MCP at:
 
-* `http://<hostname>.yourtailnet.ts.net:8080/mcp`
-* `http://127.0.0.1:8080/mcp`
+* `http://<hostname>.yourtailnet.ts.net:8080/mcp` for clients on the tailnet
+* `http://127.0.0.1:8080/mcp` for local clients, when `--local-grants` is set
 
-Deprecated stdio compatibility mode is available for older local clients that cannot use Streamable HTTP yet:
+With `--tls` the tailnet listener serves HTTPS on port 443 using a certificate issued through Tailscale, so the URL becomes `https://<hostname>.yourtailnet.ts.net/mcp`. This requires HTTPS certificates to be enabled in the tailnet's DNS settings. The startup log prints the resolved URL.
 
 ```bash
-./ts-mcp --stdio
+./ts-mcp --tls
+```
+
+Deprecated stdio compatibility mode is available for older local clients that cannot use Streamable HTTP yet. It requires `--local-grants`:
+
+```bash
+./ts-mcp --stdio --local-grants '{"tools":["*"],"resources":["*"]}'
 ```
 
 ## Claude Desktop Integration
@@ -225,7 +261,8 @@ For older Claude Desktop versions that only support local stdio MCP servers, use
       "env": {
         "TAILSCALE_OAUTH_TOKEN": "{\"type\":\"oauth\",\"clientId\":\"k123...\",\"clientSecret\":\"tskey-client-...\",\"scopes\":[\"all\"]}",
         "TAILSCALE_TAILNET": "yourtailnet.com",
-        "TS_ADVERTISE_TAGS": "tag:mcp-server"
+        "TS_ADVERTISE_TAGS": "tag:mcp-server",
+        "TS_MCP_LOCAL_GRANTS": "{\"tools\":[\"*\"],\"resources\":[\"*\"]}"
       }
     }
   }
@@ -351,6 +388,11 @@ Enable debug logging to see detailed protocol exchanges and OAuth grants:
 Debug mode includes MCP message flow, OAuth grants parsing, user authentication context, and access control decisions.
 
 ## Troubleshooting
+
+**"unauthorized: local access requires --local-grants"**
+
+* Requests over stdio or `127.0.0.1` have no Tailscale identity
+* Set `--local-grants` or `TS_MCP_LOCAL_GRANTS` to authorize local clients, or connect over the tailnet instead
 
 **"No MCP capabilities found"**
 
