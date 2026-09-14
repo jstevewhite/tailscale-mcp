@@ -10,6 +10,7 @@ An MCP (Model Context Protocol) server for Tailscale, enabling detailed queries 
 * **Single Credential Startup**: Uses `TAILSCALE_OAUTH_TOKEN` for Admin API access and tsnet startup
 * **Configurable tsnet State**: Stores tsnet state on the filesystem by default, with optional Kubernetes Secret or AWS SSM state stores
 * **Local Access Opt-In**: `--local-grants` authorizes stdio and loopback clients that have no Tailscale identity
+* **Tool Profiles**: Named tool sets in a YAML config, selected per client by URL path such as `/mcp/dns`
 
 ## Quick Start
 
@@ -34,6 +35,7 @@ The server exposes MCP at:
 
 * `http://<hostname>.yourtailnet.ts.net:8080/mcp` for any client on the tailnet whose user has a grant
 * `http://127.0.0.1:8080/mcp` for local clients, only when `--local-grants` is set (port via `--local-port`)
+* `.../mcp/<profile>` on either listener for a named tool profile, when `--config` is set
 
 Add `--tls` (or `TS_TLS=1`) to serve `https://<hostname>.yourtailnet.ts.net/mcp` on port 443 with a certificate issued through Tailscale.
 

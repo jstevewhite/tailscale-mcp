@@ -54,6 +54,9 @@ Command line options:
 * `--tls`: Serve HTTPS on the tailnet using a Tailscale-issued certificate. Same as `TS_TLS`
 * `--local-grants`: JSON grant applied to stdio and loopback callers. Same as `TS_MCP_LOCAL_GRANTS`
 * `--local-port`: Port for the plain-HTTP loopback listener, default 8080. Same as `TS_MCP_LOCAL_PORT`
+* `--config`: YAML file defining named tool profiles. Same as `TS_MCP_CONFIG`
+* `--profile`: Tool profile to serve in `--stdio` mode. Same as `TS_MCP_PROFILE`
+* `--list-groups`: Print every tool with its group and read-only flag, then exit
 * `--stdio`: Use deprecated stdio compatibility mode instead of Streamable HTTP
 
 ## tsnet State
@@ -197,6 +200,7 @@ Tool grants:
 * `list_all_devices`: Allow listing all devices
 * `tailscale_<operation>`: Allow a generated Tailscale API tool, for example `tailscale_get_dns_configuration`
 * `read:*`: Allow every tool whose MCP annotation marks it read-only, and nothing that mutates
+* `group:<name>` and `group:<name>:read`: Allow a whole group, or its read-only tools. See Tool Profiles for the group list
 * `*`: Allow all tools
 
 The server advertises only the tools a caller's grant allows. With `read:*` an agent sees about fifty read-only tools instead of the full set of over a hundred and twenty, which keeps its context small and stops it from planning around tools it cannot call. A tool outside the grant is neither listed nor callable; calling it by name returns "tool not found". Resources are always listed, but reading one still requires a matching resource grant.
@@ -223,6 +227,37 @@ Resource grants:
 Resource grants match exactly, or hierarchically when written with a trailing `/*`. `tailscale://device/*` covers `tailscale://device/<id>/routes` and `tailscale://device/<id>/attributes`; it does not cover `tailscale://devices`. When a user matches several grant rules, the tool and resource lists from all of them are combined.
 
 The `confirm` argument on mutating tools is a speed bump, not a safeguard: the required value is printed in the tool description, so an agent will supply it. The grant is the only enforcement. Prefer explicit tool lists over `"tools": ["*"]` for agents, because a wildcard grant includes `tailscale_create_key`, `tailscale_set_policy_file`, and `tailscale_delete_user`.
+
+## Tool Profiles
+
+A hundred-plus tool schemas is a lot of context for a model. Profiles let the operator publish a named subset of tools, and let each client pick one by the URL it connects to. Grants still apply: a client sees the intersection of its profile and its grant.
+
+Define profiles in a YAML file passed with `--config` or `TS_MCP_CONFIG`:
+
+```yaml
+default: readonly          # served at /mcp; omit to serve everything the grant allows
+profiles:
+  readonly: ["read:*"]
+  dns:      ["group:dns"]
+  devices:  ["group:devices:read", "tailscale_device_set_tags"]
+  ops:      ["read:*", "group:policy"]
+```
+
+Clients connect to `/mcp` for the default profile or `/mcp/<name>` for a named one. An unknown name is a 404. In `--stdio` mode pass `--profile <name>`.
+
+Selectors, usable in profiles, ACL grants, and `--local-grants`:
+
+| Selector | Matches |
+|---|---|
+| `*` | every tool |
+| `read:*` | every read-only tool |
+| `group:<name>` | every tool in the group |
+| `group:<name>:read` | the group's read-only tools |
+| `<tool name>` | one tool |
+
+Groups: `devices`, `dns`, `policy`, `keys`, `users`, `invites`, `webhooks`, `services`, `logs`, `posture`, `oauth`, `contacts`, `settings`, `local`. Run `./ts-mcp --list-groups` to print every tool with its group and read-only flag.
+
+The config is validated at startup: unknown groups, unknown tool names, empty profiles, and a `default` that names no profile all stop the server. It is read once; restart to pick up changes.
 
 ### Local Access
 
